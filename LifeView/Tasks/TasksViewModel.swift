@@ -206,6 +206,48 @@ final class TasksViewModel {
         }
     }
 
+    /// Patches the lists of `accountID` in-place, covering both state
+    /// shapes. The mutator works against a plain `[TaskList]`; in
+    /// aggregated mode the helper rebuilds ``ListSlice``s from the
+    /// updated lists, preserving tasksState for known IDs and seeding
+    /// new lists with `.loading` (the next reload picks them up).
+    /// Maintains `selectedListID` validity in single mode when the
+    /// selected list is removed.
+    func mutateAccountLists(
+        accountID: AccountID,
+        mutator: (inout [TaskList]) -> Void
+    ) {
+        switch state {
+        case var .singleLoaded(payload):
+            guard case let .single(id) = selection, id == accountID else { return }
+            mutator(&payload.lists)
+            let stillContainsSelected = payload.selectedListID
+                .map { id in payload.lists.contains(where: { $0.id == id }) } ?? true
+            if !stillContainsSelected {
+                payload.selectedListID = payload.lists.first?.id
+                payload.tasksState = .loaded([])
+            }
+            state = .singleLoaded(payload)
+        case var .allLoaded(sections):
+            guard let sectionIdx = sections.firstIndex(where: { $0.id == accountID }) else { return }
+            var lists = sections[sectionIdx].slices.map(\.list)
+            mutator(&lists)
+            let existingByID = Dictionary(
+                uniqueKeysWithValues: sections[sectionIdx].slices.map { ($0.list.id, $0) }
+            )
+            sections[sectionIdx].slices = lists.map { list in
+                if var existing = existingByID[list.id] {
+                    existing.list = list
+                    return existing
+                }
+                return ListSlice(list: list, tasksState: .loading)
+            }
+            state = .allLoaded(sections)
+        default:
+            break
+        }
+    }
+
     // MARK: - Error formatting
 
     /// Localised mutation/refresh error formatter. `nonisolated static`
