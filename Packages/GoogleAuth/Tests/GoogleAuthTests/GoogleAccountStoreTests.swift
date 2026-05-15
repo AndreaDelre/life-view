@@ -179,6 +179,56 @@ final class GoogleAccountStoreTests: XCTestCase {
         XCTAssertEqual(refresher.calls.count, 1, "refresh must be cached")
     }
 
+    func testForceRefreshAccessTokenRefreshesEvenIfStillFresh() async throws {
+        let now = Date(timeIntervalSinceReferenceDate: 1_000_000)
+        let refresher = StubTokenRefresher(.success(
+            RefreshedAccessToken(
+                accessToken: "access-rotated",
+                expiresAt: now.addingTimeInterval(3_600)
+            )
+        ))
+        let store = GoogleAccountStore(
+            keychain: InMemoryKeychainStore(),
+            activeAccount: InMemoryActiveAccountStorage(),
+            refresher: refresher,
+            revoker: StubTokenRevoker(),
+            clock: { now }
+        )
+        try await store.saveAccount(
+            makeAccount(),
+            tokens: makeFreshTokens(expiresIn: 3_600, now: now)
+        )
+
+        let token = try await store.forceRefreshAccessToken()
+
+        XCTAssertEqual(token, "access-rotated")
+        XCTAssertEqual(refresher.calls, ["refresh-original"])
+
+        // The rotated token must be persisted: a follow-up validAccessToken
+        // call must hand it back without re-hitting the refresher.
+        let next = try await store.validAccessToken()
+        XCTAssertEqual(next, "access-rotated")
+        XCTAssertEqual(refresher.calls.count, 1)
+    }
+
+    func testForceRefreshAccessTokenThrowsWhenNoAccount() async {
+        let store = GoogleAccountStore(
+            keychain: InMemoryKeychainStore(),
+            activeAccount: InMemoryActiveAccountStorage(),
+            refresher: StubTokenRefresher(.failure(GoogleOAuthError.noAccount)),
+            revoker: StubTokenRevoker()
+        )
+
+        do {
+            _ = try await store.forceRefreshAccessToken()
+            XCTFail("expected GoogleOAuthError.noAccount")
+        } catch let error as GoogleOAuthError {
+            XCTAssertEqual(error, .noAccount)
+        } catch {
+            XCTFail("unexpected error \(error)")
+        }
+    }
+
     func testValidAccessTokenPropagatesRefreshFailure() async throws {
         let now = Date(timeIntervalSinceReferenceDate: 1_000_000)
         let refresher = StubTokenRefresher(.failure(GoogleOAuthError.http(statusCode: 401)))

@@ -101,6 +101,25 @@ public actor GoogleAccountStore {
             return entry.tokens.accessToken
         }
 
+        return try await refreshAccessToken(using: entry)
+    }
+
+    /// Forces a refresh of the access token regardless of whether the
+    /// cached one is still considered valid by the local clock.
+    ///
+    /// Used by the Tasks API client when Google answers `401 Unauthorized`
+    /// despite us holding a "fresh" token — typically because the user
+    /// revoked the grant from their Google account, the token was rotated
+    /// server-side, or our clock drifted. The retry happens at most once
+    /// per request, so this method does not need its own loop.
+    public func forceRefreshAccessToken() async throws -> String {
+        guard try loadAccount() != nil, let entry = cache else {
+            throw GoogleOAuthError.noAccount
+        }
+        return try await refreshAccessToken(using: entry)
+    }
+
+    private func refreshAccessToken(using entry: (account: Account, tokens: TokenSet)) async throws -> String {
         let refreshed = try await refresher.refresh(refreshToken: entry.tokens.refreshToken)
         let updatedTokens = TokenSet(
             accessToken: refreshed.accessToken,
