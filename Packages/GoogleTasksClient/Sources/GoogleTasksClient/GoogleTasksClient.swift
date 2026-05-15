@@ -101,6 +101,13 @@ public actor GoogleTasksClient {
         return mapped
     }
 
+    /// Returns cached tasks for `(listID, showCompleted)` without
+    /// triggering a fetch. Used by the view-model to avoid flashing a
+    /// loading spinner on a switch that's actually instant.
+    public func cachedTasks(for listID: String, showCompleted: Bool) -> [TaskItem]? {
+        cachedTasks[TasksCacheKey(listID: listID, showCompleted: showCompleted)]
+    }
+
     /// Drops all cached data. Called on sign-out and account switch (P4).
     public func invalidateCache() {
         cachedLists = nil

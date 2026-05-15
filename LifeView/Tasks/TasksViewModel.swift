@@ -101,39 +101,37 @@ final class TasksViewModel {
         await client.invalidateCache()
     }
 
-    /// Switches to a different task list. After the initial load the
-    /// tasks for every list are already in the client's cache, so this
-    /// is effectively instant — no `.loading` flash.
+    /// Switches to a different task list. After the initial load every
+    /// list is already in the client's cache, so this is effectively
+    /// instant — ``loadTasks`` short-circuits on cache hits and never
+    /// flashes a loading spinner.
     func selectList(_ listID: String) {
         guard case .loaded(var payload) = state else { return }
         guard payload.selectedListID != listID else { return }
         guard payload.lists.contains(where: { $0.id == listID }) else { return }
 
         payload.selectedListID = listID
-        payload.tasksState = .loading
         state = .loaded(payload)
-
         Task { await loadTasks(for: listID, forceReload: false) }
     }
 
     /// Toggles the visibility of completed (and Google-hidden) tasks.
     /// Persisted to `UserDefaults`. The cache in ``GoogleTasksClient``
-    /// keeps both states independently.
+    /// keeps both states independently — toggling back to a previously
+    /// loaded state is instant.
     func toggleShowsCompleted() {
         showsCompleted.toggle()
         preferences.set(showsCompleted, forKey: Self.showsCompletedKey)
 
-        guard case .loaded(var payload) = state else { return }
+        guard case .loaded(let payload) = state else { return }
 
-        // Pre-fetch the other state for every list in the background so
-        // a future list-switch under the new toggle is also instant.
+        // Pre-fetch the new state for every list in the background so a
+        // future list-switch under the new toggle is also instant.
         let lists = payload.lists
         let snapshot = showsCompleted
         Task { await self.preloadTasks(for: lists, showCompleted: snapshot, forceReload: false) }
 
         if let listID = payload.selectedListID {
-            payload.tasksState = .loading
-            state = .loaded(payload)
             Task { await loadTasks(for: listID, forceReload: false) }
         }
     }
@@ -254,6 +252,20 @@ final class TasksViewModel {
     }
 
     private func loadTasks(for listID: String, forceReload: Bool) async {
+        // Fast path: cache hit → swap directly, no `.loading` flash.
+        if !forceReload, let cached = await client.cachedTasks(for: listID, showCompleted: showsCompleted) {
+            guard case .loaded(var payload) = state, payload.selectedListID == listID else { return }
+            payload.tasksState = .loaded(cached)
+            state = .loaded(payload)
+            return
+        }
+
+        // Slow path: real fetch — show the spinner first.
+        if case .loaded(var payload) = state, payload.selectedListID == listID {
+            payload.tasksState = .loading
+            state = .loaded(payload)
+        }
+
         let fetchID = UUID()
         currentTasksFetch = fetchID
 
