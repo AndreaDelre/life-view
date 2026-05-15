@@ -53,6 +53,7 @@ final class TokenSetTests: XCTestCase {
 final class AccountProfileTests: XCTestCase {
     func testCodableRoundTripWithAllFields() throws {
         let profile = AccountProfile(
+            subject: "sub-42",
             email: "ada@example.com",
             displayName: "Ada Lovelace",
             avatarURL: URL(string: "https://example.com/a.png")
@@ -65,7 +66,7 @@ final class AccountProfileTests: XCTestCase {
     }
 
     func testCodableRoundTripWithoutOptionals() throws {
-        let profile = AccountProfile(email: "ada@example.com", displayName: nil, avatarURL: nil)
+        let profile = AccountProfile(subject: nil, email: "ada@example.com", displayName: nil, avatarURL: nil)
 
         let data = try JSONEncoder().encode(profile)
         let decoded = try JSONDecoder().decode(AccountProfile.self, from: data)

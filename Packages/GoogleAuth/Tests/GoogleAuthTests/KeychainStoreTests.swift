@@ -23,6 +23,7 @@ final class KeychainStoringRoundTripTests: XCTestCase {
     func testWriteThenReadRoundTripsCodable() throws {
         let store = InMemoryKeychainStore()
         let profile = AccountProfile(
+            subject: "sub-1",
             email: "ada@example.com",
             displayName: "Ada Lovelace",
             avatarURL: URL(string: "https://example.com/a.png")
