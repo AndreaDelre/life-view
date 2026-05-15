@@ -454,6 +454,7 @@ final class TasksViewModel {
             case .http(let status): return "Erreur Google Tasks (HTTP \(status))."
             case .decodingFailed: return "Réponse Google inattendue."
             case .transport(let message): return "Problème réseau : \(message)"
+            case .emptyPatch: return "Modification vide ignorée."
             }
         }
         return (error as NSError).localizedDescription

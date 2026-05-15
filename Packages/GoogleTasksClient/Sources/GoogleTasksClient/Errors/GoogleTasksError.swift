@@ -19,4 +19,9 @@ public enum GoogleTasksError: Error, Sendable, Equatable {
     /// Transport-level failure (DNS, TLS, connectivity…). The message is
     /// safe to surface but does not include user data.
     case transport(message: String)
+    /// A mutation was requested with no fields to change. The view-model
+    /// short-circuits empty patches; this guards against bugs where an
+    /// empty patch reaches the client (which Google would reject with
+    /// `400 Bad Request` anyway).
+    case emptyPatch
 }

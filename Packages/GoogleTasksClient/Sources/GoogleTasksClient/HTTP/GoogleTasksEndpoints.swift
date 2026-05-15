@@ -48,4 +48,22 @@ enum GoogleTasksEndpoints {
         // swiftlint:disable:next force_unwrapping
         return components.url!
     }
+
+    /// `POST /lists/{listID}/tasks` — body is a ``RemoteTaskInput``.
+    static func insertTask(in listID: String) -> URL {
+        let escapedID = listID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? listID
+        return base.appendingPathComponent("lists/\(escapedID)/tasks")
+    }
+
+    /// `PATCH /lists/{listID}/tasks/{taskID}` — body is a ``RemoteTaskPatch``.
+    static func updateTask(in listID: String, taskID: String) -> URL {
+        let escapedList = listID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? listID
+        let escapedTask = taskID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? taskID
+        return base.appendingPathComponent("lists/\(escapedList)/tasks/\(escapedTask)")
+    }
+
+    /// `DELETE /lists/{listID}/tasks/{taskID}` — no body, expected 204.
+    static func deleteTask(in listID: String, taskID: String) -> URL {
+        updateTask(in: listID, taskID: taskID)
+    }
 }
