@@ -278,8 +278,49 @@ final class GoogleTasksClientTests: XCTestCase {
     }
 
     func testTasksEndpointEscapesListID() {
-        let url = GoogleTasksEndpoints.tasks(in: "id with space", pageToken: nil)
+        let url = GoogleTasksEndpoints.tasks(in: "id with space", pageToken: nil, showCompleted: false)
         XCTAssertTrue(url.path.contains("id%20with%20space") || url.path.contains("id with space"))
         XCTAssertTrue(url.query?.contains("showCompleted=false") == true)
+        XCTAssertTrue(url.query?.contains("showHidden=false") == true)
+    }
+
+    func testTasksEndpointPropagatesShowCompleted() {
+        let url = GoogleTasksEndpoints.tasks(in: "list-1", pageToken: nil, showCompleted: true)
+        XCTAssertTrue(url.query?.contains("showCompleted=true") == true)
+        XCTAssertTrue(url.query?.contains("showHidden=true") == true)
+        XCTAssertTrue(url.query?.contains("showDeleted=false") == true)
+    }
+
+    // MARK: - showCompleted cache
+
+    func testFetchTasksCachesShownAndHiddenIndependently() async throws {
+        let needsActionBody = #"{"items":[{"id":"a","title":"A","status":"needsAction","position":"00000000000000000001"}]}"#
+        let withCompletedBody = #"""
+        {"items":[
+          {"id":"a","title":"A","status":"needsAction","position":"00000000000000000001"},
+          {"id":"b","title":"B","status":"completed","position":"00000000000000000002"}
+        ]}
+        """#
+
+        let http = StubTasksHTTPClient([
+            .success(statusCode: 200, body: Data(needsActionBody.utf8)),
+            .success(statusCode: 200, body: Data(withCompletedBody.utf8))
+        ])
+        let client = GoogleTasksClient(authorizing: StubTasksAuthorizing(), http: http)
+
+        let visible = try await client.fetchTasks(in: "list-1", showCompleted: false)
+        let withCompleted = try await client.fetchTasks(in: "list-1", showCompleted: true)
+
+        XCTAssertEqual(visible.count, 1)
+        XCTAssertEqual(withCompleted.count, 2)
+        XCTAssertEqual(http.requests.count, 2, "each toggle state must be fetched once")
+
+        // Toggling back must hit the cache, not re-fetch.
+        _ = try await client.fetchTasks(in: "list-1", showCompleted: false)
+        _ = try await client.fetchTasks(in: "list-1", showCompleted: true)
+        XCTAssertEqual(http.requests.count, 2)
+
+        // The second request URL must carry the toggle.
+        XCTAssertTrue(http.requests[1].url?.query?.contains("showCompleted=true") == true)
     }
 }

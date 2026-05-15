@@ -26,7 +26,15 @@ public actor GoogleTasksClient {
     private let decoder: JSONDecoder
 
     private var cachedLists: [TaskList]?
-    private var cachedTasks: [String: [TaskItem]] = [:]
+    /// Keyed by ``TasksCacheKey`` so the panel can flip the
+    /// "show completed" toggle without invalidating the cached
+    /// "needsAction-only" view (and vice-versa).
+    private var cachedTasks: [TasksCacheKey: [TaskItem]] = [:]
+
+    private struct TasksCacheKey: Hashable {
+        let listID: String
+        let showCompleted: Bool
+    }
 
     public init(
         authorizing: TasksAuthorizing,
@@ -64,21 +72,31 @@ public actor GoogleTasksClient {
 
     /// Returns the tasks of one list, sorted by `position` (Google's
     /// canonical lexicographic ordering).
-    public func fetchTasks(in listID: String, forceReload: Bool = false) async throws -> [TaskItem] {
-        if !forceReload, let cached = cachedTasks[listID] {
+    ///
+    /// `showCompleted` toggles the inclusion of `completed` (and
+    /// `hidden`) tasks. Both states are cached independently so a user
+    /// flipping the panel toggle back and forth doesn't re-hit Google
+    /// every time.
+    public func fetchTasks(
+        in listID: String,
+        showCompleted: Bool = false,
+        forceReload: Bool = false
+    ) async throws -> [TaskItem] {
+        let cacheKey = TasksCacheKey(listID: listID, showCompleted: showCompleted)
+        if !forceReload, let cached = cachedTasks[cacheKey] {
             return cached
         }
 
         let raw = try await fetchAllPages(
             description: "tasks",
-            urlForToken: { GoogleTasksEndpoints.tasks(in: listID, pageToken: $0) },
+            urlForToken: { GoogleTasksEndpoints.tasks(in: listID, pageToken: $0, showCompleted: showCompleted) },
             page: RemoteTaskPage.self,
             items: \.items,
             nextToken: \.nextPageToken
         )
         let mapped = raw.compactMap { $0.toDomain() }
             .sorted { $0.position < $1.position }
-        cachedTasks[listID] = mapped
+        cachedTasks[cacheKey] = mapped
         logger.debug("Fetched \(mapped.count, privacy: .public) task(s) for list")
         return mapped
     }

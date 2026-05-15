@@ -33,8 +33,10 @@ final class TasksViewModel {
 
     private(set) var state: State = .idle
     private(set) var isRefreshing: Bool = false
+    private(set) var showsCompleted: Bool
 
     private let client: GoogleTasksClient
+    private let preferences: UserDefaults
 
     /// Identifier of the in-flight tasks fetch. Used to drop responses
     /// from a previous list when the user switches lists faster than the
@@ -42,8 +44,12 @@ final class TasksViewModel {
     /// after a quick second one and clobber the displayed payload.
     private var currentTasksFetch: UUID?
 
-    init(client: GoogleTasksClient) {
+    private static let showsCompletedKey = "TasksViewModel.showsCompleted"
+
+    init(client: GoogleTasksClient, preferences: UserDefaults = .standard) {
         self.client = client
+        self.preferences = preferences
+        self.showsCompleted = preferences.bool(forKey: Self.showsCompletedKey)
     }
 
     // MARK: - Lifecycle
@@ -90,6 +96,20 @@ final class TasksViewModel {
         Task { await loadTasks(for: listID, forceReload: false) }
     }
 
+    /// Toggles the visibility of completed (and Google-hidden) tasks.
+    /// The choice is persisted to `UserDefaults` so it survives app
+    /// restarts. The cache in ``GoogleTasksClient`` keeps both states
+    /// independently — flipping back and forth does not re-hit Google.
+    func toggleShowsCompleted() {
+        showsCompleted.toggle()
+        preferences.set(showsCompleted, forKey: Self.showsCompletedKey)
+
+        guard case .loaded(var payload) = state, let listID = payload.selectedListID else { return }
+        payload.tasksState = .loading
+        state = .loaded(payload)
+        Task { await loadTasks(for: listID, forceReload: false) }
+    }
+
     // MARK: - Internal flows
 
     private var currentlySelectedListID: String? {
@@ -132,7 +152,11 @@ final class TasksViewModel {
         currentTasksFetch = fetchID
 
         do {
-            let tasks = try await client.fetchTasks(in: listID, forceReload: forceReload)
+            let tasks = try await client.fetchTasks(
+                in: listID,
+                showCompleted: showsCompleted,
+                forceReload: forceReload
+            )
             // Late response from a prior list — discard.
             guard currentTasksFetch == fetchID else { return }
             guard case .loaded(var payload) = state, payload.selectedListID == listID else { return }

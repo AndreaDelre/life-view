@@ -51,14 +51,28 @@ struct TasksView: View {
             set: { viewModel.selectList($0) }
         )
 
-        return Picker("Liste", selection: selectionBinding) {
-            ForEach(payload.lists) { list in
-                Text(list.title).tag(list.id)
+        return HStack(spacing: 8) {
+            Picker("Liste", selection: selectionBinding) {
+                ForEach(payload.lists) { list in
+                    Text(list.title).tag(list.id)
+                }
             }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .controlSize(.regular)
+
+            Spacer(minLength: 0)
+
+            Button {
+                viewModel.toggleShowsCompleted()
+            } label: {
+                Image(systemName: viewModel.showsCompleted ? "eye.fill" : "eye.slash")
+                    .symbolRenderingMode(.hierarchical)
+            }
+            .buttonStyle(.borderless)
+            .help(viewModel.showsCompleted ? "Masquer les tâches terminées" : "Afficher les tâches terminées")
+            .accessibilityLabel(viewModel.showsCompleted ? "Masquer les tâches terminées" : "Afficher les tâches terminées")
         }
-        .labelsHidden()
-        .pickerStyle(.menu)
-        .controlSize(.regular)
     }
 
     @ViewBuilder
@@ -75,8 +89,10 @@ struct TasksView: View {
             if tasks.isEmpty {
                 EmptyState(
                     icon: "checkmark.seal",
-                    title: "Tout est fait !",
-                    message: "Aucune tâche ouverte dans cette liste."
+                    title: viewModel.showsCompleted ? "Liste vide" : "Tout est fait !",
+                    message: viewModel.showsCompleted
+                        ? "Aucune tâche dans cette liste."
+                        : "Aucune tâche ouverte. Active l’œil pour voir les tâches terminées."
                 )
                 .refreshable { await viewModel.refresh() }
             } else {
