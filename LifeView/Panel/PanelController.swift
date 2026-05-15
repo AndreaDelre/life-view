@@ -1,0 +1,128 @@
+import AppKit
+import Core
+import SwiftUI
+
+/// Owns the ``LifeViewPanel`` instance, drives the slide animation, and wires
+/// the auto-close monitors. Single point of truth for "is the panel visible".
+@MainActor
+final class PanelController {
+    /// Width of the panel in points. Configurable later, fixed for P1.
+    static let panelWidth: CGFloat = 380
+
+    private static let animationDuration: TimeInterval = 0.22
+
+    private let panel: LifeViewPanel
+    private var globalMonitor: Any?
+    private var localMonitor: Any?
+    private(set) var isVisible = false
+
+    init() {
+        // Start with a placeholder frame; real geometry is computed at open time.
+        let initialFrame = NSRect(x: 0, y: 0, width: Self.panelWidth, height: 600)
+        panel = LifeViewPanel(contentRect: initialFrame)
+        panel.contentView = NSHostingView(rootView: PanelContentView())
+        panel.onEscape = { [weak self] in
+            self?.hide()
+        }
+    }
+
+    // MARK: - Public API
+
+    func toggle() {
+        if isVisible {
+            hide()
+        } else {
+            show()
+        }
+    }
+
+    func show() {
+        guard !isVisible else { return }
+        guard let screen = ScreenLocator.screenUnderMouse() ?? NSScreen.main else { return }
+
+        let visible = screen.visibleFrame
+        let targetFrame = NSRect(
+            x: visible.minX,
+            y: visible.minY,
+            width: Self.panelWidth,
+            height: visible.height
+        )
+        // Start off-screen to the left of the visible area for the slide effect.
+        let startFrame = targetFrame.offsetBy(dx: -Self.panelWidth, dy: 0)
+
+        panel.alphaValue = 0
+        panel.setFrame(startFrame, display: false)
+        // `orderFrontRegardless` keeps the previously-focused app active —
+        // we do NOT call `makeKeyAndOrderFront` from the app delegate without
+        // first deactivating, because we never want to steal focus on toggle.
+        panel.orderFrontRegardless()
+        // Still want keyboard events for Escape, but only via the panel itself.
+        panel.makeFirstResponder(panel.contentView)
+        panel.makeKey()
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.animationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.allowsImplicitAnimation = true
+            panel.animator().setFrame(targetFrame, display: true)
+            panel.animator().alphaValue = 1
+        }
+
+        installCloseMonitors()
+        isVisible = true
+    }
+
+    func hide() {
+        guard isVisible else { return }
+        let current = panel.frame
+        let offscreen = current.offsetBy(dx: -Self.panelWidth, dy: 0)
+
+        removeCloseMonitors()
+
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = Self.animationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            context.allowsImplicitAnimation = true
+            panel.animator().setFrame(offscreen, display: true)
+            panel.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            Task { @MainActor in
+                self?.panel.orderOut(nil)
+            }
+        })
+        isVisible = false
+    }
+
+    // MARK: - Auto-close monitors
+
+    private func installCloseMonitors() {
+        removeCloseMonitors()
+
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            // Any click outside our process closes the panel.
+            Task { @MainActor in self?.hide() }
+        }
+
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self else { return event }
+            // If the click landed in another window of our own app (e.g. a future
+            // preferences window), still close the panel. Clicks inside the panel
+            // itself are ignored.
+            if event.window !== self.panel {
+                Task { @MainActor in self.hide() }
+            }
+            return event
+        }
+    }
+
+    private func removeCloseMonitors() {
+        if let globalMonitor {
+            NSEvent.removeMonitor(globalMonitor)
+            self.globalMonitor = nil
+        }
+        if let localMonitor {
+            NSEvent.removeMonitor(localMonitor)
+            self.localMonitor = nil
+        }
+    }
+}
