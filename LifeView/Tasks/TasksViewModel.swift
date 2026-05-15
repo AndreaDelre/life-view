@@ -324,8 +324,13 @@ final class TasksViewModel {
         fromUser: Bool
     ) async {
         // Filter to accounts we can resolve right now. An id whose
-        // ``accountLookup`` returns `nil` was just removed.
-        let resolved: [Account] = accountIDs.compactMap(accountLookup)
+        // ``accountLookup`` returns `nil` was just removed. Forwarded
+        // through an explicit closure rather than passed by reference:
+        // Swift 6.0 cannot prove that a `@MainActor` function reference
+        // is non-throwing when it lands in `Array.compactMap`'s
+        // `rethrows` slot, even though the call site is itself on the
+        // main actor.
+        let resolved: [Account] = accountIDs.compactMap { accountLookup($0) }
 
         guard !resolved.isEmpty else {
             state = .idle
