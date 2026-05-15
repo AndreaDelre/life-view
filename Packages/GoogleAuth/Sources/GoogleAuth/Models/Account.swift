@@ -13,4 +13,9 @@ public struct Account: Sendable, Equatable, Identifiable {
         self.id = id
         self.profile = profile
     }
+
+    /// Convenience accessor for the Google OpenID `subject`, the only field
+    /// stable enough to dedupe accounts across re-connects. Optional so
+    /// legacy profiles that predate the field still type-check.
+    public var subject: String? { profile.subject }
 }

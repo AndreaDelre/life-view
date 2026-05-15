@@ -65,7 +65,7 @@ public final class GoogleSignInService {
 
     private static func extract(from result: GIDSignInResult) throws -> SignInResult {
         let user = result.user
-        guard let userID = user.userID,
+        guard let subject = user.userID,
               let profile = user.profile,
               let expiration = user.accessToken.expirationDate
         else {
@@ -76,8 +76,12 @@ public final class GoogleSignInService {
             throw GoogleOAuthError.incompleteResponse
         }
 
-        let accountID = AccountID(userID)
+        // A fresh local id every time; ``AccountStore.addAccount`` uses the
+        // Google ``subject`` to recognise an already-connected account and
+        // discard this id in favour of the existing one.
+        let accountID = AccountID.make()
         let accountProfile = AccountProfile(
+            subject: subject,
             email: profile.email,
             displayName: profile.name,
             avatarURL: profile.hasImage ? profile.imageURL(withDimension: 96) : nil

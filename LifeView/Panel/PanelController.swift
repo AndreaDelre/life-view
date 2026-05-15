@@ -21,7 +21,7 @@ final class PanelController {
     /// yank the panel away mid-consent.
     private var interactionLockCount = 0
 
-    init(authViewModel: AuthViewModel, tasksViewModel: TasksViewModel) {
+    init(accountsViewModel: AccountsViewModel, tasksViewModel: TasksViewModel) {
         // Start with a placeholder frame; real geometry is computed at open time.
         let initialFrame = NSRect(x: 0, y: 0, width: Self.panelWidth, height: 600)
         panel = LifeViewPanel(contentRect: initialFrame)
@@ -35,7 +35,7 @@ final class PanelController {
         )
         panel.contentView = NSHostingView(
             rootView: PanelContentView(
-                authViewModel: authViewModel,
+                accountsViewModel: accountsViewModel,
                 tasksViewModel: tasksViewModel,
                 environment: environment
             )
