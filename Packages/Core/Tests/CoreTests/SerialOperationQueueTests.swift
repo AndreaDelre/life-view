@@ -25,21 +25,37 @@ final class SerialOperationQueueTests: XCTestCase {
     func testSerialisesSameKeyInFIFOOrder() async throws {
         let queue = SerialOperationQueue<String>()
         let recorder = OrderRecorder()
+        // Barrier: the first op signals once it has actually started.
+        // The test only enqueues the second op after that signal, so
+        // the queue's `tails[key]` is guaranteed to be populated and
+        // the second op chains behind. Without this, `async let` does
+        // not commit to a Task-start order, and the second op can win
+        // the actor entry race.
+        let started = AsyncStream<Void>.makeStream()
 
-        async let first = queue.enqueue(for: "k") {
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            await recorder.append("a")
-            return "a"
+        let firstTask: Task<String, Error> = Task {
+            try await queue.enqueue(for: "k") {
+                await recorder.append("a-start")
+                started.continuation.yield(())
+                started.continuation.finish()
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                await recorder.append("a-end")
+                return "a"
+            }
         }
-        async let second = queue.enqueue(for: "k") {
+        var iterator = started.stream.makeAsyncIterator()
+        _ = await iterator.next()
+
+        let second = try await queue.enqueue(for: "k") {
             await recorder.append("b")
             return "b"
         }
-
-        _ = try await (first, second)
+        let first = try await firstTask.value
+        XCTAssertEqual(first, "a")
+        XCTAssertEqual(second, "b")
 
         let log = await recorder.snapshot()
-        XCTAssertEqual(log, ["a", "b"], "second op must wait for first despite being faster")
+        XCTAssertEqual(log, ["a-start", "a-end", "b"], "second op must wait for first to finish")
     }
 
     func testKeysAreIndependent() async throws {
@@ -66,22 +82,25 @@ final class SerialOperationQueueTests: XCTestCase {
         let queue = SerialOperationQueue<String>()
         let recorder = OrderRecorder()
 
-        async let first: Void = {
-            do {
-                try await queue.enqueue(for: "k") {
-                    await recorder.append("a-start")
-                    throw SampleError.boom
-                } as Void
-            } catch {
-                await recorder.append("a-failed")
-            }
-        }()
-        async let second = queue.enqueue(for: "k") {
+        // Op A throws — await it sequentially so the tail is set to a
+        // completed-with-failure wrapper before op B is submitted.
+        do {
+            try await queue.enqueue(for: "k") {
+                await recorder.append("a-start")
+                throw SampleError.boom
+            } as Void
+        } catch {
+            await recorder.append("a-failed")
+        }
+
+        // Op B must still run despite the predecessor having thrown.
+        // If the failure had poisoned the chain, this `await` would
+        // either throw or never resume.
+        let result = try await queue.enqueue(for: "k") {
             await recorder.append("b")
             return "b"
         }
-
-        _ = try await (first, second)
+        XCTAssertEqual(result, "b")
 
         let log = await recorder.snapshot()
         XCTAssertEqual(log, ["a-start", "a-failed", "b"], "subsequent op must still run after a failure")
