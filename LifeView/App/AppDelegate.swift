@@ -1,6 +1,7 @@
 import AppKit
 import Core
 import GoogleAuth
+import GoogleTasksClient
 
 /// Application-level orchestrator.
 ///
@@ -14,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
     private var hotKey: GlobalHotKey?
     private var authViewModel: AuthViewModel?
+    private var tasksViewModel: TasksViewModel?
 
     func applicationDidFinishLaunching(_: Notification) {
         // Hide the dock icon. We rely on `LSUIElement = true` in Info.plist as
@@ -27,7 +29,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let viewModel = AuthViewModel(store: store, signInService: signInService)
         authViewModel = viewModel
 
-        let controller = PanelController(authViewModel: viewModel)
+        let tasksClient = GoogleTasksClient(
+            authorizing: GoogleAccountStoreTasksAdapter(store: store)
+        )
+        let tasksVM = TasksViewModel(client: tasksClient)
+        tasksViewModel = tasksVM
+
+        let controller = PanelController(authViewModel: viewModel, tasksViewModel: tasksVM)
         panelController = controller
 
         statusBarController = StatusBarController { [weak controller] in

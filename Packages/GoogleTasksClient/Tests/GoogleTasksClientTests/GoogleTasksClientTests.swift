@@ -6,14 +6,15 @@ final class GoogleTasksClientTests: XCTestCase {
     // MARK: - fetchTaskLists
 
     func testFetchTaskListsHappyPath() async throws {
-        let body = """
+        let bodyJSON = """
         {
           "items": [
             {"id": "list-1", "title": "Personnel", "updated": "2026-05-15T08:00:00.000Z"},
             {"id": "list-2", "title": "Boulot",    "updated": "2026-05-14T10:30:00.123Z"}
           ]
         }
-        """.data(using: .utf8) ?? Data()
+        """
+        let body = Data(bodyJSON.utf8)
 
         let auth = StubTasksAuthorizing()
         let http = StubTasksHTTPClient([.success(statusCode: 200, body: body)])
@@ -101,7 +102,7 @@ final class GoogleTasksClientTests: XCTestCase {
     // MARK: - fetchTasks
 
     func testFetchTasksMapsAndSortsByPosition() async throws {
-        let body = """
+        let bodyJSON = """
         {
           "items": [
             {"id":"t3","title":"Late",  "status":"needsAction","position":"00000000000000000003"},
@@ -109,7 +110,8 @@ final class GoogleTasksClientTests: XCTestCase {
             {"id":"t2","title":"Mid",   "status":"needsAction","position":"00000000000000000002","due":"2026-06-01T00:00:00.000Z"}
           ]
         }
-        """.data(using: .utf8) ?? Data()
+        """
+        let body = Data(bodyJSON.utf8)
 
         let client = GoogleTasksClient(
             authorizing: StubTasksAuthorizing(),
@@ -125,14 +127,15 @@ final class GoogleTasksClientTests: XCTestCase {
     func testFetchTasksDropsItemsWithoutPosition() async throws {
         // Real-world case: tombstones / partially-deleted entries. We do
         // not want them to surface as "(untitled)" rows in the panel.
-        let body = """
+        let bodyJSON = """
         {
           "items": [
             {"id":"good","title":"OK","status":"needsAction","position":"00000000000000000001"},
             {"id":"ghost","title":"","status":"deleted"}
           ]
         }
-        """.data(using: .utf8) ?? Data()
+        """
+        let body = Data(bodyJSON.utf8)
 
         let client = GoogleTasksClient(
             authorizing: StubTasksAuthorizing(),
