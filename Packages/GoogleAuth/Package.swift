@@ -9,11 +9,15 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../Core"),
+        .package(url: "https://github.com/google/GoogleSignIn-iOS", from: "8.0.0"),
     ],
     targets: [
         .target(
             name: "GoogleAuth",
-            dependencies: ["Core"],
+            dependencies: [
+                "Core",
+                .product(name: "GoogleSignIn", package: "GoogleSignIn-iOS"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableExperimentalFeature("StrictConcurrency"),

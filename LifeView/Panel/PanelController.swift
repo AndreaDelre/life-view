@@ -15,13 +15,43 @@ final class PanelController {
     private var globalMouseMonitor: Any?
     private(set) var isVisible = false
 
-    init() {
+    /// Auto-close is suspended while this counter is > 0. We bump it during
+    /// the OAuth `ASWebAuthenticationSession` because that flow steals focus
+    /// system-wide and would otherwise trigger the global-click monitor and
+    /// yank the panel away mid-consent.
+    private var interactionLockCount = 0
+
+    init(authViewModel: AuthViewModel) {
         // Start with a placeholder frame; real geometry is computed at open time.
         let initialFrame = NSRect(x: 0, y: 0, width: Self.panelWidth, height: 600)
         panel = LifeViewPanel(contentRect: initialFrame)
-        panel.contentView = NSHostingView(rootView: PanelContentView())
+
+        // `panel` is captured weakly so the SwiftUI content view does not
+        // retain the controller's panel; the controller owns the lifetime.
+        let environment = PanelEnvironment(
+            presentingWindow: { [weak panel] in panel },
+            acquireInteractionLock: { [weak self] in self?.acquireInteractionLock() },
+            releaseInteractionLock: { [weak self] in self?.releaseInteractionLock() }
+        )
+        panel.contentView = NSHostingView(
+            rootView: PanelContentView(authViewModel: authViewModel, environment: environment)
+        )
         panel.onEscape = { [weak self] in
             self?.hide()
+        }
+    }
+
+    // MARK: - Interaction lock
+
+    func acquireInteractionLock() {
+        interactionLockCount += 1
+        removeCloseMonitors()
+    }
+
+    func releaseInteractionLock() {
+        interactionLockCount = max(0, interactionLockCount - 1)
+        if interactionLockCount == 0, isVisible {
+            installCloseMonitors()
         }
     }
 
@@ -69,7 +99,9 @@ final class PanelController {
             panel.animator().alphaValue = 1
         }
 
-        installCloseMonitors()
+        if interactionLockCount == 0 {
+            installCloseMonitors()
+        }
         isVisible = true
     }
 
