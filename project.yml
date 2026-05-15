@@ -1,0 +1,65 @@
+name: LifeView
+options:
+  bundleIdPrefix: fr.andreadelre
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "14.0"
+  generateEmptyDirectories: true
+  groupSortPosition: top
+  minimumXcodeGenVersion: "2.39.0"
+
+configs:
+  Debug: debug
+  Release: release
+
+configFiles:
+  Debug: Config/Debug.xcconfig
+  Release: Config/Release.xcconfig
+
+
+packages:
+  Core:
+    path: Packages/Core
+  GoogleAuth:
+    path: Packages/GoogleAuth
+  GoogleTasksClient:
+    path: Packages/GoogleTasksClient
+  DesignSystem:
+    path: Packages/DesignSystem
+
+targets:
+  LifeView:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: LifeView
+        excludes:
+          - "LifeView.entitlements"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.andreadelre.LifeView
+        PRODUCT_NAME: LifeView
+        CODE_SIGN_ENTITLEMENTS: LifeView/LifeView.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_APP_SANDBOX: YES
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: LifeView
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        INFOPLIST_KEY_NSHumanReadableCopyright: "Copyright © 2026 Andrea Delre"
+        INFOPLIST_KEY_NSPrincipalClass: NSApplication
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_EMIT_LOC_STRINGS: YES
+    dependencies:
+      - package: Core
+      - package: GoogleAuth
+      - package: GoogleTasksClient
+      - package: DesignSystem
+    scheme:
+      testTargets:
+        - package: Core/CoreTests
+        - package: GoogleAuth/GoogleAuthTests
+        - package: GoogleTasksClient/GoogleTasksClientTests
+        - package: DesignSystem/DesignSystemTests
+      gatherCoverageData: true
