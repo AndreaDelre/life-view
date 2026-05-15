@@ -86,7 +86,12 @@ final class AccountsViewModel {
         // back to MainActor via the function being @MainActor.
         let store = self.store
         subscriptionTask = Task { [weak self] in
-            for await snapshot in await store.snapshots {
+            // Two-step on purpose: Swift 6.0 (Xcode 16.2 / CI) refuses
+            // the chained form `for await … in await store.snapshots`
+            // even though Xcode 26 accepts it. The intermediate `let`
+            // lifts the cross-actor read out of the `for-await` clause.
+            let stream = await store.snapshots
+            for await snapshot in stream {
                 guard let self else { return }
                 self.apply(snapshot: snapshot)
             }

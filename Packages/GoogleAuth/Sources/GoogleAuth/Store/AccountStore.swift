@@ -244,12 +244,14 @@ public actor AccountStore {
     public var snapshots: AsyncStream<AccountsSnapshot> {
         AsyncStream { continuation in
             let token = UUID()
-            // The builder closure runs synchronously inside the actor
-            // because ``snapshots`` is an actor-isolated property getter,
-            // so registration is a same-isolation call. The termination
-            // handler, however, is `@Sendable` and may fire from any
-            // context: it hops back via a Task.
-            register(token: token, continuation: continuation)
+            // Both register and unregister hop through a Task because
+            // the `AsyncStream` builder closure is `@Sendable` and the
+            // termination handler may fire from any context. Xcode 26
+            // can infer that the builder runs synchronously inside the
+            // actor and warns about the redundant `await`, but Swift
+            // 6.0 on CI (Xcode 16.2) needs the explicit isolation hop,
+            // so we keep the Task wrapping.
+            Task { await self.register(token: token, continuation: continuation) }
             continuation.onTermination = { @Sendable [weak self] _ in
                 guard let self else { return }
                 Task { await self.unregister(token: token) }
