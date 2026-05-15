@@ -51,7 +51,7 @@ struct TasksView: View {
             set: { viewModel.selectList($0) }
         )
 
-        return HStack(spacing: 8) {
+        return HStack(spacing: 6) {
             Picker("Liste", selection: selectionBinding) {
                 ForEach(payload.lists) { list in
                     Text(list.title).tag(list.id)
@@ -72,6 +72,24 @@ struct TasksView: View {
             .buttonStyle(.borderless)
             .help(viewModel.showsCompleted ? "Masquer les tâches terminées" : "Afficher les tâches terminées")
             .accessibilityLabel(viewModel.showsCompleted ? "Masquer les tâches terminées" : "Afficher les tâches terminées")
+
+            Button {
+                Task { await viewModel.refresh() }
+            } label: {
+                ZStack {
+                    Image(systemName: "arrow.clockwise")
+                        .opacity(viewModel.isRefreshing ? 0 : 1)
+                    if viewModel.isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+                .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.borderless)
+            .disabled(viewModel.isRefreshing)
+            .help("Rafraîchir")
+            .accessibilityLabel("Rafraîchir")
         }
     }
 
