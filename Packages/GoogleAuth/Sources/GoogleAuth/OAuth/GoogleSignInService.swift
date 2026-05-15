@@ -1,6 +1,14 @@
 import AppKit
 import Foundation
-import GoogleSignIn
+// `@preconcurrency` because GoogleSignIn-iOS is an Obj-C SDK whose
+// types (`GIDSignInResult`, `GIDGoogleUser`…) aren't annotated
+// `Sendable`. Without the attribute, Swift 6 strict concurrency rejects
+// the `await GIDSignIn.signIn(...)` call as crossing an actor boundary
+// with a non-Sendable result. Local Xcode tolerates it, CI's Xcode 16.2
+// doesn't — so we pin the relaxed import here. We never let the SDK
+// types escape this file: the return value is the Sendable
+// ``SignInResult`` struct.
+@preconcurrency import GoogleSignIn
 
 /// Result handed back to ``GoogleAccountStore`` after a successful interactive
 /// sign-in.
