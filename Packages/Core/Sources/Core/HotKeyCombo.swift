@@ -78,38 +78,18 @@ public extension HotKeyCombo {
     /// Unmapped keys fall back to a hex form (`#0xNN`) — good enough for a
     /// developer-facing display until P7 ships a real keycode → name table.
     static func keyName(for keyCode: UInt16) -> String {
-        switch keyCode {
-        case 0x00: "A"
-        case 0x0B: "B"
-        case 0x08: "C"
-        case 0x02: "D"
-        case 0x0E: "E"
-        case 0x03: "F"
-        case 0x05: "G"
-        case 0x04: "H"
-        case 0x22: "I"
-        case 0x26: "J"
-        case 0x28: "K"
-        case 0x25: "L"
-        case 0x2E: "M"
-        case 0x2D: "N"
-        case 0x1F: "O"
-        case 0x23: "P"
-        case 0x0C: "Q"
-        case 0x0F: "R"
-        case 0x01: "S"
-        case 0x11: "T"
-        case 0x20: "U"
-        case 0x09: "V"
-        case 0x0D: "W"
-        case 0x07: "X"
-        case 0x10: "Y"
-        case 0x06: "Z"
-        case 0x31: "Space"
-        case 0x24: "Return"
-        case 0x35: "Esc"
-        case 0x30: "Tab"
-        default: String(format: "#0x%02X", keyCode)
-        }
+        keyNameTable[keyCode] ?? String(format: "#0x%02X", keyCode)
     }
+
+    /// Static keycode → glyph lookup. A dictionary keeps cyclomatic complexity
+    /// flat (vs. a giant switch) and lets future keymaps merge in cleanly.
+    private static let keyNameTable: [UInt16: String] = [
+        0x00: "A", 0x0B: "B", 0x08: "C", 0x02: "D", 0x0E: "E",
+        0x03: "F", 0x05: "G", 0x04: "H", 0x22: "I", 0x26: "J",
+        0x28: "K", 0x25: "L", 0x2E: "M", 0x2D: "N", 0x1F: "O",
+        0x23: "P", 0x0C: "Q", 0x0F: "R", 0x01: "S", 0x11: "T",
+        0x20: "U", 0x09: "V", 0x0D: "W", 0x07: "X", 0x10: "Y",
+        0x06: "Z",
+        0x31: "Space", 0x24: "Return", 0x35: "Esc", 0x30: "Tab",
+    ]
 }
