@@ -1,0 +1,56 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+.swiftpm/
+
+# Generated Xcode project (via XcodeGen / Tuist)
+# We track project.yml; the .xcodeproj is regenerated locally.
+LifeView.xcodeproj/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Secrets / local config
+*.local.xcconfig
+GoogleService-Info.plist
+ClientSecret.plist
+.env
+.env.*
+
+# Logs / coverage
+*.log
+coverage/
+*.profdata
+*.profraw
+
+# Fastlane (si ajouté plus tard)
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
