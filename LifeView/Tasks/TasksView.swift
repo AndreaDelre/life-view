@@ -1,9 +1,14 @@
 import Core
 import SwiftUI
 
-/// Root view of the tasks corner: list picker on top, scrollable list of
-/// tasks below. Owns nothing — purely a presentation layer over
-/// ``TasksViewModel``.
+/// Root view of the tasks corner.
+///
+/// Two rendering paths driven by ``TasksViewModel/state``:
+///
+/// - Single mode: list picker on top, scrollable tasks below — same shape
+///   as P3 plus account context.
+/// - All-accounts mode: a single scrollable view with one section per
+///   account, each section listing every list with its tasks underneath.
 struct TasksView: View {
     @Bindable var viewModel: TasksViewModel
 
@@ -13,23 +18,20 @@ struct TasksView: View {
             case .idle, .loading:
                 loadingPlaceholder
             case .error(let message):
-                ErrorState(message: message) {
-                    Task { await viewModel.refresh() }
-                }
-            case .loaded(let payload):
-                loadedContent(payload)
+                ErrorState(message: message) { Task { await viewModel.refresh() } }
+            case .singleLoaded(let payload):
+                singleContent(payload)
+            case .allLoaded(let sections):
+                allContent(sections)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .task {
-            await viewModel.start()
-        }
     }
 
-    // MARK: - Loaded content
+    // MARK: - Single mode
 
     @ViewBuilder
-    private func loadedContent(_ payload: TasksViewModel.Payload) -> some View {
+    private func singleContent(_ payload: TasksViewModel.SinglePayload) -> some View {
         if payload.lists.isEmpty {
             EmptyState(
                 icon: "tray",
@@ -38,14 +40,14 @@ struct TasksView: View {
             )
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                listPicker(payload)
+                singleToolbar(payload)
                 Divider()
-                tasksSection(payload)
+                singleTasksSection(payload)
             }
         }
     }
 
-    private func listPicker(_ payload: TasksViewModel.Payload) -> some View {
+    private func singleToolbar(_ payload: TasksViewModel.SinglePayload) -> some View {
         let selectionBinding = Binding<String>(
             get: { payload.selectedListID ?? payload.lists.first?.id ?? "" },
             set: { viewModel.selectList($0) }
@@ -63,46 +65,23 @@ struct TasksView: View {
 
             Spacer(minLength: 0)
 
-            Button {
+            CompletedToggle(showsCompleted: viewModel.showsCompleted) {
                 viewModel.toggleShowsCompleted()
-            } label: {
-                Image(systemName: viewModel.showsCompleted ? "eye.fill" : "eye.slash")
-                    .symbolRenderingMode(.hierarchical)
             }
-            .buttonStyle(.borderless)
-            .help(viewModel.showsCompleted ? "Masquer les tâches terminées" : "Afficher les tâches terminées")
-            .accessibilityLabel(viewModel.showsCompleted ? "Masquer les tâches terminées" : "Afficher les tâches terminées")
-
-            Button {
+            RefreshButton(isRefreshing: viewModel.isRefreshing) {
                 Task { await viewModel.refresh() }
-            } label: {
-                ZStack {
-                    Image(systemName: "arrow.clockwise")
-                        .opacity(viewModel.isRefreshing ? 0 : 1)
-                    if viewModel.isRefreshing {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                }
-                .frame(width: 16, height: 16)
             }
-            .buttonStyle(.borderless)
-            .disabled(viewModel.isRefreshing)
-            .help("Rafraîchir")
-            .accessibilityLabel("Rafraîchir")
         }
     }
 
     @ViewBuilder
-    private func tasksSection(_ payload: TasksViewModel.Payload) -> some View {
+    private func singleTasksSection(_ payload: TasksViewModel.SinglePayload) -> some View {
         switch payload.tasksState {
         case .loading:
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .error(let message):
-            ErrorState(message: message) {
-                Task { await viewModel.refresh() }
-            }
+            ErrorState(message: message) { Task { await viewModel.refresh() } }
         case .loaded(let tasks):
             if tasks.isEmpty {
                 EmptyState(
@@ -127,11 +106,158 @@ struct TasksView: View {
         }
     }
 
+    // MARK: - All-accounts mode
+
+    @ViewBuilder
+    private func allContent(_ sections: [TasksViewModel.AccountSection]) -> some View {
+        if sections.isEmpty {
+            EmptyState(
+                icon: "person.2",
+                title: "Aucun compte",
+                message: "Ajoute un compte Google pour voir tes tâches ici."
+            )
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Text("Tous les comptes")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    CompletedToggle(showsCompleted: viewModel.showsCompleted) {
+                        viewModel.toggleShowsCompleted()
+                    }
+                    RefreshButton(isRefreshing: viewModel.isRefreshing) {
+                        Task { await viewModel.refresh() }
+                    }
+                }
+                Divider()
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        ForEach(sections) { section in
+                            AccountSectionView(section: section)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .scrollContentBackground(.hidden)
+                .refreshable { await viewModel.refresh() }
+            }
+        }
+    }
+
     // MARK: - Placeholders
 
     private var loadingPlaceholder: some View {
         ProgressView()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Aggregated section
+
+private struct AccountSectionView: View {
+    let section: TasksViewModel.AccountSection
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            header
+            ForEach(section.slices) { slice in
+                ListSliceView(slice: slice)
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            AccountAvatarView(url: section.account.profile.avatarURL)
+                .frame(width: 22, height: 22)
+            VStack(alignment: .leading, spacing: 0) {
+                if let name = section.account.profile.displayName, !name.isEmpty {
+                    Text(name).font(.callout.weight(.semibold))
+                }
+                Text(section.account.profile.email)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct ListSliceView: View {
+    let slice: TasksViewModel.ListSlice
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(slice.list.title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+                .padding(.leading, 4)
+            switch slice.tasksState {
+            case .loading:
+                HStack { ProgressView().controlSize(.small); Spacer() }
+                    .padding(.leading, 4)
+            case .error(let message):
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+            case .loaded(let tasks):
+                if tasks.isEmpty {
+                    Text("—")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 4)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(tasks) { task in
+                            TaskRowView(task: task)
+                                .padding(.vertical, 1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Toolbar pieces (shared)
+
+private struct CompletedToggle: View {
+    let showsCompleted: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            Image(systemName: showsCompleted ? "eye.fill" : "eye.slash")
+                .symbolRenderingMode(.hierarchical)
+        }
+        .buttonStyle(.borderless)
+        .help(showsCompleted ? "Masquer les tâches terminées" : "Afficher les tâches terminées")
+        .accessibilityLabel(showsCompleted ? "Masquer les tâches terminées" : "Afficher les tâches terminées")
+    }
+}
+
+private struct RefreshButton: View {
+    let isRefreshing: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Image(systemName: "arrow.clockwise")
+                    .opacity(isRefreshing ? 0 : 1)
+                if isRefreshing {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .frame(width: 16, height: 16)
+        }
+        .buttonStyle(.borderless)
+        .disabled(isRefreshing)
+        .help("Rafraîchir")
+        .accessibilityLabel("Rafraîchir")
     }
 }
 
