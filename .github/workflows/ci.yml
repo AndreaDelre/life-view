@@ -28,7 +28,9 @@ jobs:
             ${{ runner.os }}-brew-swiftlint-
 
       - name: Install SwiftLint
-        run: brew install swiftlint
+        run: |
+          brew install swiftlint || true
+          brew link --overwrite swiftlint
 
       - name: Run SwiftLint
         run: swiftlint --strict
