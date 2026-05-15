@@ -189,6 +189,55 @@ public actor GoogleTasksClient {
         logger.debug("Deleted task in list")
     }
 
+    /// Creates a new task list. Returns the server's canonical
+    /// representation (with the server-assigned `id` and `updatedAt`).
+    @discardableResult
+    public func insertTaskList(title: String) async throws -> TaskList {
+        let body = try encoder.encode(RemoteTaskListInput(title: title))
+        let url = GoogleTasksEndpoints.insertTaskList()
+        let remote: RemoteTaskList = try await performMutation(
+            description: "POST lists",
+            method: "POST",
+            url: url,
+            body: body
+        )
+        let inserted = remote.toDomain()
+        applyInsertToListsCache(inserted)
+        logger.debug("Inserted task list")
+        return inserted
+    }
+
+    /// Renames an existing list. Only `title` is mutable.
+    @discardableResult
+    public func renameTaskList(listID: String, title: String) async throws -> TaskList {
+        let body = try encoder.encode(RemoteTaskListInput(title: title))
+        let url = GoogleTasksEndpoints.updateTaskList(listID: listID)
+        let remote: RemoteTaskList = try await performMutation(
+            description: "PATCH lists",
+            method: "PATCH",
+            url: url,
+            body: body
+        )
+        let renamed = remote.toDomain()
+        applyUpdateToListsCache(renamed)
+        logger.debug("Renamed task list")
+        return renamed
+    }
+
+    /// Deletes a list (and every task it contains — server-side cascade).
+    /// Drops cached lists and any cached tasks for this list.
+    public func deleteTaskList(listID: String) async throws {
+        let url = GoogleTasksEndpoints.deleteTaskList(listID: listID)
+        try await performMutationVoid(
+            description: "DELETE lists",
+            method: "DELETE",
+            url: url,
+            body: nil
+        )
+        applyDeleteToListsCache(listID: listID)
+        logger.debug("Deleted task list")
+    }
+
     // MARK: - Cache helpers
 
     private func applyInsertToCache(_ task: TaskItem, listID: String) {
@@ -220,6 +269,28 @@ public actor GoogleTasksClient {
         for key in cachedTasks.keys where key.listID == listID {
             cachedTasks[key]?.removeAll { $0.id == taskID }
         }
+    }
+
+    private func applyInsertToListsCache(_ list: TaskList) {
+        guard var cached = cachedLists else { return }
+        cached.removeAll { $0.id == list.id }
+        cached.append(list)
+        cachedLists = cached
+    }
+
+    private func applyUpdateToListsCache(_ list: TaskList) {
+        guard var cached = cachedLists else { return }
+        if let index = cached.firstIndex(where: { $0.id == list.id }) {
+            cached[index] = list
+            cachedLists = cached
+        }
+    }
+
+    private func applyDeleteToListsCache(listID: String) {
+        cachedLists?.removeAll { $0.id == listID }
+        // Drop every tasks-cache entry for the deleted list — those rows
+        // no longer exist server-side after the cascade.
+        cachedTasks = cachedTasks.filter { $0.key.listID != listID }
     }
 
     // MARK: - Pagination

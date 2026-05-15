@@ -66,4 +66,22 @@ enum GoogleTasksEndpoints {
     static func deleteTask(in listID: String, taskID: String) -> URL {
         updateTask(in: listID, taskID: taskID)
     }
+
+    /// `POST /users/@me/lists` — body is a ``RemoteTaskListInput``.
+    static func insertTaskList() -> URL {
+        base.appendingPathComponent("users/@me/lists")
+    }
+
+    /// `PATCH /users/@me/lists/{listID}` — body is a ``RemoteTaskListInput``.
+    /// Used to rename a list; `title` is the only mutable field.
+    static func updateTaskList(listID: String) -> URL {
+        let escapedID = listID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? listID
+        return base.appendingPathComponent("users/@me/lists/\(escapedID)")
+    }
+
+    /// `DELETE /users/@me/lists/{listID}` — no body, expected 204. Deletes
+    /// the list and every task it contains (server-side cascade).
+    static func deleteTaskList(listID: String) -> URL {
+        updateTaskList(listID: listID)
+    }
 }
