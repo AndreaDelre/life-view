@@ -54,15 +54,34 @@ Packages/
 
 Le découpage en packages SPM accélère les compilations incrémentales et rend chaque morceau testable en isolation.
 
-## Démarrer (à venir)
+## Démarrer
 
-> Le projet Xcode n'est pas encore généré — voir `docs/ROADMAP.md`, phase **P0**.
+Pré-requis : macOS 14 Sonoma minimum, Xcode 15+ (Command Line Tools acceptées pour la CI), [Homebrew](https://brew.sh).
 
 ```bash
-brew install xcodegen swiftlint swiftformat
+# 1. Installer les outils de dev (xcodegen, swiftlint, swiftformat)
+brew bundle
+
+# 2. Générer le projet Xcode (le .xcodeproj n'est pas versionné)
 xcodegen generate
+
+# 3. Compiler et tester en ligne de commande
+xcodebuild -scheme LifeView -destination 'platform=macOS' build test
+
+# 4. Ou ouvrir dans Xcode pour développer
 open LifeView.xcodeproj
 ```
+
+Lint :
+
+```bash
+swiftlint --strict     # 0 warning attendu
+swiftformat .          # auto-format
+```
+
+Les configurations partagées vivent dans `Config/*.xcconfig`. Les packages SPM
+locaux (`Core`, `GoogleAuth`, `GoogleTasksClient`, `DesignSystem`) sont sous
+`Packages/` et liés automatiquement au target `LifeView` via `project.yml`.
 
 ## Conventions Git
 

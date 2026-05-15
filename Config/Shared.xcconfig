@@ -1,0 +1,29 @@
+// Shared build settings for all configurations.
+
+// Deployment target
+MACOSX_DEPLOYMENT_TARGET = 14.0
+
+// Architectures: universal (Apple Silicon + Intel)
+ARCHS = arm64 x86_64
+VALID_ARCHS = arm64 x86_64
+
+// Swift
+SWIFT_VERSION = 6.0
+SWIFT_STRICT_CONCURRENCY = complete
+
+// Bundle
+PRODUCT_BUNDLE_IDENTIFIER = fr.andreadelre.LifeView
+PRODUCT_NAME = LifeView
+
+// Signing — manual / no team for local dev. CI overrides as needed.
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = -
+CODE_SIGNING_REQUIRED = NO
+CODE_SIGNING_ALLOWED = NO
+
+// Misc
+ENABLE_HARDENED_RUNTIME = YES
+CLANG_ENABLE_MODULES = YES
+SWIFT_INSTALL_OBJC_HEADER = NO
+ALWAYS_SEARCH_USER_PATHS = NO
+COMBINE_HIDPI_IMAGES = YES

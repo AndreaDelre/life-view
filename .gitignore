@@ -23,7 +23,11 @@ xcuserdata/
 
 # Swift Package Manager
 .build/
-Packages/
+# We DO track our local SPM packages under `Packages/` (Core, GoogleAuth, ...),
+# but ignore anything Xcode/SwiftPM checks out inside them.
+Packages/*/.build/
+Packages/*/.swiftpm/
+Packages/*/Package.resolved
 Package.resolved
 .swiftpm/
 
