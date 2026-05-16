@@ -45,4 +45,32 @@ public enum Motion {
     /// as `standard` so the rhythm of the app doesn't change, only the
     /// movement vector is dropped.
     public static let reduced: Animation = .easeInOut(duration: durationStandard)
+
+    // MARK: - Composite transitions
+
+    /// Asymmetric row transition for inserted / removed list items.
+    ///
+    /// * Insert: slide down from the top + fade-in. The new-task
+    ///   capture row is anchored at the top of the list, so making
+    ///   freshly-created rows enter from the same direction reinforces
+    ///   the cause/effect link.
+    /// * Remove: slide out to the leading edge + fade-out. The trailing
+    ///   edge hosts the swipe-to-delete affordance — pushing the row
+    ///   the opposite way of the gesture would fight the user; leading
+    ///   also reads as "discarded off-stage".
+    ///
+    /// Exposed as a computed property because `AnyTransition` is not
+    /// `Sendable` and would otherwise trip strict-concurrency on a
+    /// `static let`.
+    public static var rowTransition: AnyTransition {
+        .asymmetric(
+            insertion: .move(edge: .top).combined(with: .opacity),
+            removal: .move(edge: .leading).combined(with: .opacity)
+        )
+    }
+
+    /// Reduced-motion variant of `rowTransition` — opacity-only, no
+    /// directional displacement. Used when
+    /// `@Environment(\.accessibilityReduceMotion)` is on.
+    public static var rowReducedTransition: AnyTransition { .opacity }
 }
