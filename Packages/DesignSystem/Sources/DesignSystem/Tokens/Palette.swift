@@ -55,6 +55,23 @@ public enum Palette {
     /// non-text-contrast threshold against the panel background.
     public static let surfaceWarning = Color(nsColor: .systemOrange).opacity(0.18)
 
+    /// Subtle "card" surface used by the capture row and other inline
+    /// inputs to lift them off the panel material. Low alpha so the
+    /// underlying `NSVisualEffectView` translucency stays the dominant
+    /// visual — the card reads as a soft inset, not a hard panel.
+    public static let surfaceCard = Color(nsColor: .labelColor).opacity(0.05)
+
+    /// 1pt hairline used to outline a card surface. Pairs with
+    /// ``surfaceCard`` to give the input a perceptible boundary on
+    /// translucent panel materials where a pure fill would otherwise
+    /// blur into the background.
+    public static let surfaceCardStroke = Color(nsColor: .separatorColor).opacity(0.65)
+
+    /// Soft accent surface — accent-tinted with low alpha, used by the
+    /// count badges next to section titles. Reads as a quiet brand
+    /// touch without competing with the title weight itself.
+    public static let surfaceAccentSoft = Color.accentColor.opacity(0.12)
+
     // MARK: - Text
 
     /// Primary readable text — task titles, body copy.

@@ -41,10 +41,8 @@ public enum IconSize {
 
 /// Corner-radius scale shared by all rounded shapes.
 ///
-/// Kept short on purpose: the panel design is flat and uses small
-/// radii. Reach for the system shape (`.capsule`, etc.) when the
-/// element is meant to look pill-shaped — these tokens are for
-/// rectangles only.
+/// Reach for the system shape (`.capsule`, etc.) when the element is
+/// meant to look pill-shaped — these tokens are for rectangles only.
 public enum Radius {
     /// 4pt — tiny chip / inline pill.
     public static let sm: CGFloat = 4
@@ -52,4 +50,8 @@ public enum Radius {
     public static let md: CGFloat = 8
     /// 12pt — bigger surfaces (popovers, prominent cards).
     public static let lg: CGFloat = 12
+    /// 14pt — capture inputs / "card" rows. Sits between `lg` and a
+    /// full capsule so the corner reads as soft & modern without
+    /// losing the rectangle's grid alignment.
+    public static let xl: CGFloat = 14
 }
