@@ -95,6 +95,7 @@ struct TaskRowView: View {
         )
         .animation(reduceMotion ? Motion.reduced : Motion.quick, value: isHovering)
         .animation(reduceMotion ? Motion.reduced : Motion.quick, value: isSelected)
+        .animation(reduceMotion ? Motion.reduced : Motion.quick, value: isEditing)
         .onHover { hovering in
             isHovering = hovering
         }
@@ -155,9 +156,12 @@ struct TaskRowView: View {
     }
 
     /// Pre-resolved row tint. Pending wins (busy reads as "don't
-    /// touch me"), then selected beats hover beats idle.
+    /// touch me"), then editing pins the selection tint (so the row
+    /// doesn't fall back to the empty background while the inline
+    /// editor is active), then selected beats hover beats idle.
     private var rowTint: Color {
         if isPending { return .clear }
+        if isEditing { return Palette.surfaceRowSelected }
         if isSelected { return Palette.surfaceRowSelected }
         if isHovering { return Palette.surfaceHover }
         return .clear
