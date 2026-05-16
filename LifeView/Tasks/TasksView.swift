@@ -13,6 +13,7 @@ import SwiftUI
 ///   account, each section listing every list with its tasks underneath.
 struct TasksView: View {
     @Bindable var viewModel: TasksViewModel
+    @Bindable var accountsViewModel: AccountsViewModel
     @State private var newTaskTitle: String = ""
     @State private var newTaskDue: Date?
     @State private var selectedTaskID: String?
@@ -62,21 +63,80 @@ struct TasksView: View {
         }
         .animation(.easeInOut(duration: 0.18), value: viewModel.lastError)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(
-            // Hidden ⌘N shortcut: focuses the new-task field when in
-            // single mode. Lives on the root view so it's active
-            // regardless of which sub-view has focus.
+        .background(shortcutHosts)
+    }
+
+    /// All the "invisible" buttons that exist solely to host a
+    /// `keyboardShortcut`. Grouped here so the body stays readable and
+    /// the binding/label mapping lives next to ``Shortcut`` rather than
+    /// scattered through the view tree.
+    private var shortcutHosts: some View {
+        ZStack {
+            // ⌘N — historical alternate for the new-task field focus.
+            // Kept alongside `N` because muscle memory from other
+            // task apps reaches for the modified form.
             Button("Nouvelle tâche", action: focusNewTaskField)
                 .keyboardShortcut("n", modifiers: .command)
-                .opacity(0)
-                .frame(width: 0, height: 0)
-                .accessibilityHidden(true)
-        )
+                .hiddenShortcutHost()
+
+            // N — focus the new-task field. Bare letter (no modifier);
+            // safe because it only fires when the panel has focus and
+            // no `TextField` is editing — SwiftUI gives focused fields
+            // priority on plain-letter keys.
+            Button("Nouvelle tâche", action: focusNewTaskField)
+                .keyboardShortcut(Shortcut.newTask)
+                .hiddenShortcutHost()
+
+            // ⌘1 … ⌘9 — switch to the Nth list of the current account.
+            // We bind all nine even if the account has fewer lists:
+            // the action no-ops past the end and the menu reflects
+            // reality. Aggregated mode silently ignores all nine
+            // because there is no current list there.
+            ForEach(1...9, id: \.self) { index in
+                Button("Liste \(index)", action: { selectList(at: index - 1) })
+                    .keyboardShortcut(Shortcut.switchList(index))
+                    .hiddenShortcutHost()
+            }
+
+            // ⌘⇧A — cycle to the next account.
+            Button("Compte suivant", action: cycleAccount)
+                .keyboardShortcut(Shortcut.cycleAccount)
+                .hiddenShortcutHost()
+        }
     }
 
     private func focusNewTaskField() {
         guard case .singleLoaded = viewModel.state else { return }
         newTaskFieldFocused = true
+    }
+
+    /// Switches to the Nth list of the current single-mode account.
+    /// No-op in aggregated mode (every list is already on screen) or
+    /// when the index falls past the end of the list collection.
+    private func selectList(at index: Int) {
+        guard case let .singleLoaded(payload) = viewModel.state else { return }
+        guard index >= 0, index < payload.lists.count else { return }
+        viewModel.selectList(payload.lists[index].id)
+    }
+
+    /// Cycles to the next account in display order. In aggregated mode
+    /// we bounce to the first account in single mode — the user gets a
+    /// concrete selection rather than "wrapping inside the aggregate"
+    /// which has no meaning. If there is only one account, no-op.
+    private func cycleAccount() {
+        let accounts = accountsViewModel.accounts
+        guard accounts.count >= 1 else { return }
+        switch accountsViewModel.mode {
+        case .all:
+            accountsViewModel.setMode(.single)
+            Task { await accountsViewModel.select(accounts[0].id) }
+        case .single:
+            guard accounts.count >= 2 else { return }
+            let currentIndex = accountsViewModel.selectedID
+                .flatMap { id in accounts.firstIndex(where: { $0.id == id }) } ?? -1
+            let next = accounts[(currentIndex + 1) % accounts.count]
+            Task { await accountsViewModel.select(next.id) }
+        }
     }
 
     private func submitNewTask() {
@@ -183,40 +243,9 @@ struct TasksView: View {
         .fixedSize()
     }
 
-    private func presentCreateList() {
-        guard case let .single(accountID) = viewModel.selection else { return }
-        guard let title = ConfirmationAlert.prompt(
-            title: "Nouvelle liste",
-            message: "Donne un nom à ta nouvelle liste de tâches.",
-            placeholder: "Ex. Courses",
-            confirmLabel: "Créer"
-        ) else { return }
-        _ = viewModel.createList(title: title)
-        _ = accountID
-    }
-
-    private func presentRenameList(_ list: TaskList) {
-        guard case let .single(accountID) = viewModel.selection else { return }
-        guard let newTitle = ConfirmationAlert.prompt(
-            title: "Renommer la liste",
-            placeholder: "Nom de la liste",
-            initialValue: list.title,
-            confirmLabel: "Renommer"
-        ) else { return }
-        viewModel.renameList(listID: list.id, to: newTitle, account: accountID)
-    }
-
-    private func presentDeleteList(_ list: TaskList) {
-        guard case let .single(accountID) = viewModel.selection else { return }
-        let confirmed = ConfirmationAlert.confirm(
-            title: "Supprimer « \(list.title) » ?",
-            message: "Toutes les tâches de cette liste seront aussi supprimées. Cette action est irréversible.",
-            confirmLabel: "Supprimer",
-            isDestructive: true
-        )
-        guard confirmed else { return }
-        viewModel.deleteList(listID: list.id, account: accountID)
-    }
+    // `presentCreateList` / `presentRenameList` / `presentDeleteList`
+    // live in `TasksView+ListActions.swift` to keep this file under
+    // the SwiftLint `type_body_length` budget.
 
     @ViewBuilder
     private func singleTasksSection(_ payload: TasksViewModel.SinglePayload) -> some View {
@@ -256,6 +285,14 @@ struct TasksView: View {
         guard case let .single(accountID) = viewModel.selection,
               let listID = payload.selectedListID else { return nil }
         return (accountID, listID)
+    }
+
+    @discardableResult
+    private func deleteSelected(listID: String, accountID: AccountID) -> KeyPress.Result {
+        guard let id = selectedTaskID else { return .ignored }
+        viewModel.deleteTask(taskID: id, in: listID, account: accountID)
+        selectedTaskID = nil
+        return .handled
     }
 
     private func singleTasksList(
@@ -324,13 +361,18 @@ struct TasksView: View {
         }
         // ⌫ → delete the selected row. No confirm — tasks are cheap to
         // re-create, and the operation rolls back on a server-side
-        // failure anyway.
+        // failure anyway. We listen for both `.delete` (forward delete
+        // key) and `.deleteForward` so ⌫ / fn+⌫ both work. ⌘⌫ is
+        // intercepted via a dedicated hidden button below to avoid
+        // clashing with the List's native row-delete intercept.
         .onKeyPress(.delete) {
-            guard let id = selectedTaskID else { return .ignored }
-            viewModel.deleteTask(taskID: id, in: listID, account: accountID)
-            selectedTaskID = nil
-            return .handled
+            deleteSelected(listID: listID, accountID: accountID)
         }
+        .background(
+            Button("Supprimer", action: { _ = deleteSelected(listID: listID, accountID: accountID) })
+                .keyboardShortcut(.delete, modifiers: .command)
+                .hiddenShortcutHost()
+        )
         // Return → enter inline edit on the selected row.
         .onKeyPress(.return) {
             guard let id = selectedTaskID else { return .ignored }
@@ -390,85 +432,6 @@ struct TasksView: View {
     }
 }
 
-// MARK: - Toolbar pieces (shared)
-
-private struct CompletedToggle: View {
-    let showsCompleted: Bool
-    let toggle: () -> Void
-
-    var body: some View {
-        Button(action: toggle) {
-            Image(systemName: showsCompleted ? "eye.fill" : "eye.slash")
-                .symbolRenderingMode(.hierarchical)
-        }
-        .buttonStyle(.borderless)
-        .help(showsCompleted ? "Masquer les tâches terminées" : "Afficher les tâches terminées")
-        .accessibilityLabel(showsCompleted ? "Masquer les tâches terminées" : "Afficher les tâches terminées")
-    }
-}
-
-private struct RefreshButton: View {
-    let isRefreshing: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                Image(systemName: "arrow.clockwise")
-                    .opacity(isRefreshing ? 0 : 1)
-                if isRefreshing {
-                    ProgressView().controlSize(.small)
-                }
-            }
-            .frame(width: IconSize.sm, height: IconSize.sm)
-        }
-        .buttonStyle(.borderless)
-        .disabled(isRefreshing)
-        .help("Rafraîchir")
-        .accessibilityLabel("Rafraîchir")
-    }
-}
-
-// MARK: - Reusable states
-
-private struct EmptyState: View {
-    let icon: String
-    let title: String
-    let message: String
-
-    var body: some View {
-        VStack(spacing: Spacing.sm) {
-            Image(systemName: icon)
-                .font(.title)
-                .foregroundStyle(Palette.textSecondary)
-            Text(title)
-                .font(.headline)
-            Text(message)
-                .font(Typography.callout)
-                .foregroundStyle(Palette.textSecondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(Spacing.md)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct ErrorState: View {
-    let message: String
-    let retry: () -> Void
-
-    var body: some View {
-        VStack(spacing: Spacing.md) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.title)
-                .foregroundStyle(Palette.warning)
-            Text(message)
-                .font(Typography.callout)
-                .multilineTextAlignment(.center)
-            Button("Réessayer", action: retry)
-                .controlSize(.small)
-        }
-        .padding(Spacing.md)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
+// Shared visual primitives (CompletedToggle, RefreshButton, EmptyState,
+// ErrorState, hiddenShortcutHost) live in `TasksViewSupport.swift` to
+// keep this file under the SwiftLint file-length budget.
