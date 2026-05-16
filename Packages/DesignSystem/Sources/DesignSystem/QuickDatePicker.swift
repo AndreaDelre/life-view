@@ -73,8 +73,13 @@ public struct QuickDatePicker: View {
             )
             .labelsHidden()
             .datePickerStyle(.graphical)
+            .frame(maxWidth: .infinity)
         }
         .padding(12)
+        // The graphical DatePicker expands to fill its container width;
+        // pinning the popover width keeps the layout stable so the
+        // calendar grid takes the whole available space instead of
+        // hugging its intrinsic size on the leading edge.
         .frame(width: 280)
     }
 
