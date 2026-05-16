@@ -26,6 +26,8 @@ packages:
     path: Packages/GoogleTasksClient
   DesignSystem:
     path: Packages/DesignSystem
+  OfflineCache:
+    path: Packages/OfflineCache
 
 targets:
   LifeView:
@@ -68,6 +70,7 @@ targets:
       - package: GoogleAuth
       - package: GoogleTasksClient
       - package: DesignSystem
+      - package: OfflineCache
     scheme:
       testTargets:
         - LifeViewTests
@@ -75,6 +78,7 @@ targets:
         - package: GoogleAuth/GoogleAuthTests
         - package: GoogleTasksClient/GoogleTasksClientTests
         - package: DesignSystem/DesignSystemTests
+        - package: OfflineCache/OfflineCacheTests
       # Coverage temporarily disabled: turning it on instruments the
       # test target with `__llvm_profile_runtime` calls that aren't
       # resolved against SPM-built framework dependencies (LifeViewTests

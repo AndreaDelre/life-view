@@ -17,6 +17,10 @@ struct PanelContentView: View {
     let accountsViewModel: AccountsViewModel
     let tasksViewModel: TasksViewModel
     let environment: PanelEnvironment
+    /// Optional: when present, the panel header surfaces an offline /
+    /// "sync in progress" indicator. Absent in tests where we don't
+    /// build the cache stack.
+    var syncCoordinator: OfflineSyncCoordinator?
 
     @State private var showsHelp: Bool = false
 
@@ -89,6 +93,9 @@ struct PanelContentView: View {
                 .font(Typography.titleLarge)
                 .accessibilityAddTraits(.isHeader)
             Spacer()
+            if let syncCoordinator {
+                OfflineIndicatorView(coordinator: syncCoordinator)
+            }
             helpButton
         }
     }
