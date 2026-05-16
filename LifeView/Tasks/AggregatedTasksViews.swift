@@ -21,15 +21,17 @@ struct AccountSectionView: View {
     let editingBinding: (String) -> Binding<Bool>
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
+        VStack(alignment: .leading, spacing: Spacing.md) {
             header
-            ForEach(section.slices) { slice in
-                ListSliceView(
-                    slice: slice,
-                    accountID: section.account.id,
-                    viewModel: viewModel,
-                    editingBinding: editingBinding
-                )
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                ForEach(section.slices) { slice in
+                    ListSliceView(
+                        slice: slice,
+                        accountID: section.account.id,
+                        viewModel: viewModel,
+                        editingBinding: editingBinding
+                    )
+                }
             }
         }
     }
@@ -58,43 +60,107 @@ struct AccountSectionView: View {
     }
 }
 
+/// Modern collapsible list section. Click the header to fold the rows
+/// underneath; the chevron rotates 90° on collapse to reinforce the
+/// state visually. Mirrors the section-header treatment used by
+/// Todoist / TickTick: chevron + title + count chip.
 struct ListSliceView: View {
     let slice: TasksViewModel.ListSlice
     let accountID: AccountID
     @Bindable var viewModel: TasksViewModel
     let editingBinding: (String) -> Binding<Bool>
 
+    /// Open by default — power-users open the panel to triage tasks,
+    /// not to choose which list to expand. Per-list collapse state is
+    /// intentionally local (no persistence) because the panel session
+    /// is short-lived and a sticky collapse would surprise users who
+    /// open the panel expecting all their tasks.
+    @State private var isCollapsed: Bool = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-            Text(slice.list.title)
-                .font(Typography.subheadline)
-                .foregroundStyle(Palette.textPrimary)
-                .padding(.leading, Spacing.xs)
-                .accessibilityAddTraits(.isHeader)
-            switch slice.tasksState {
-            case .loading:
-                HStack { ProgressView().controlSize(.small)
-                    Spacer()
-                }
-                .padding(.leading, Spacing.xs)
-                .accessibilityLabel("Chargement des tâches de \(slice.list.title)")
-            case let .error(message):
-                Text(message)
-                    .font(Typography.caption)
-                    .foregroundStyle(Palette.textSecondary)
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            sectionHeader
+            if !isCollapsed {
+                content
                     .padding(.leading, Spacing.xs)
-            case let .loaded(tasks):
-                if tasks.isEmpty {
-                    Text("—")
-                        .font(Typography.caption)
-                        .foregroundStyle(Palette.textTertiary)
-                        .padding(.leading, Spacing.xs)
-                        .accessibilityLabel("Aucune tâche dans \(slice.list.title)")
-                } else {
-                    tasksStack(tasks)
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(reduceMotion ? Motion.reduced : Motion.standard, value: isCollapsed)
+    }
+
+    /// Top header row: chevron + title + count chip. Tapping anywhere
+    /// on the row toggles the section. Hidden behind a borderless
+    /// button so the whole strip is one hit-target with the right
+    /// VoiceOver semantics (button + expanded/collapsed state).
+    private var sectionHeader: some View {
+        Button {
+            isCollapsed.toggle()
+        } label: {
+            HStack(spacing: Spacing.sm) {
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(Palette.textSecondary)
+                    .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                    .frame(width: 12, alignment: .center)
+                    .accessibilityHidden(true)
+
+                Text(slice.list.title)
+                    .font(Typography.sectionTitle)
+                    .foregroundStyle(Palette.textPrimary)
+
+                if let total = visibleCount {
+                    CountBadge(count: total)
                 }
+
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(slice.list.title)
+        .accessibilityValue(accessibilityValue)
+        .accessibilityHint("Active pour \(isCollapsed ? "déplier" : "replier") la liste")
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    /// Count rendered in the badge. Returns `nil` while loading / on
+    /// error so we don't show a transient "0".
+    private var visibleCount: Int? {
+        guard case let .loaded(tasks) = slice.tasksState else { return nil }
+        return tasks.count
+    }
+
+    private var accessibilityValue: String {
+        let state = isCollapsed ? "replié" : "déplié"
+        if let count = visibleCount {
+            return "\(state), \(count) tâche\(count > 1 ? "s" : "")"
+        }
+        return state
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch slice.tasksState {
+        case .loading:
+            HStack { ProgressView().controlSize(.small)
+                Spacer()
+            }
+            .accessibilityLabel("Chargement des tâches de \(slice.list.title)")
+        case let .error(message):
+            Text(message)
+                .font(Typography.caption)
+                .foregroundStyle(Palette.textSecondary)
+        case let .loaded(tasks):
+            if tasks.isEmpty {
+                Text("Aucune tâche")
+                    .font(Typography.caption)
+                    .foregroundStyle(Palette.textTertiary)
+                    .accessibilityLabel("Aucune tâche dans \(slice.list.title)")
+            } else {
+                tasksStack(tasks)
             }
         }
     }

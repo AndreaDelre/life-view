@@ -170,96 +170,24 @@ struct TasksView: View {
                 message: "Ce compte Google n'a pas encore de liste de tâches."
             )
         } else {
-            VStack(alignment: .leading, spacing: Spacing.sm) {
+            VStack(alignment: .leading, spacing: Spacing.md) {
                 singleToolbar(payload)
-                Divider()
                 NewTaskRow(
                     title: $newTaskTitle,
                     due: $newTaskDue,
                     fieldFocused: $newTaskFieldFocused,
                     onSubmit: submitNewTask
                 )
-                Divider()
                 singleTasksSection(payload)
             }
         }
     }
 
-    private func singleToolbar(_ payload: TasksViewModel.SinglePayload) -> some View {
-        HStack(spacing: Spacing.sm) {
-            listMenu(payload)
-
-            Spacer(minLength: 0)
-
-            CompletedToggle(showsCompleted: viewModel.showsCompleted) {
-                viewModel.toggleShowsCompleted()
-            }
-            RefreshButton(isRefreshing: viewModel.isRefreshing) {
-                Task { await viewModel.refresh() }
-            }
-        }
-    }
-
-    /// Combined list-picker + list-CRUD entry point. Lives behind a
-    /// single `Menu` to keep the toolbar compact: pick a list from the
-    /// top section, then below the divider find Nouvelle / Renommer /
-    /// Supprimer for the currently-selected list.
-    private func listMenu(_ payload: TasksViewModel.SinglePayload) -> some View {
-        let selectedTitle = payload.lists
-            .first(where: { $0.id == payload.selectedListID })?.title
-            ?? payload.lists.first?.title
-            ?? "Listes"
-        let selectedList = payload.lists.first(where: { $0.id == payload.selectedListID })
-
-        return Menu {
-            ForEach(payload.lists) { list in
-                Button {
-                    viewModel.selectList(list.id)
-                } label: {
-                    if list.id == payload.selectedListID {
-                        Label(list.title, systemImage: "checkmark")
-                    } else {
-                        Text(list.title)
-                    }
-                }
-            }
-            Divider()
-            Button {
-                presentCreateList()
-            } label: {
-                Label("Nouvelle liste…", systemImage: "plus")
-            }
-            if let selectedList, !selectedList.id.hasPrefix("local-list-") {
-                Divider()
-                Button {
-                    presentRenameList(selectedList)
-                } label: {
-                    Label("Renommer la liste…", systemImage: "pencil")
-                }
-                Button(role: .destructive) {
-                    presentDeleteList(selectedList)
-                } label: {
-                    Label("Supprimer la liste…", systemImage: "trash")
-                }
-            }
-        } label: {
-            HStack(spacing: Spacing.xs) {
-                Text(selectedTitle).lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .imageScale(.small)
-                    .foregroundStyle(Palette.textSecondary)
-                    .accessibilityHidden(true)
-            }
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .accessibilityLabel("Liste : \(selectedTitle)")
-        .accessibilityHint("Change de liste ou crée, renomme, supprime la liste courante")
-    }
-
-    // `presentCreateList` / `presentRenameList` / `presentDeleteList`
-    // live in `TasksView+ListActions.swift` to keep this file under
-    // the SwiftLint `type_body_length` budget.
+    // `singleToolbar`, `listTitleMenu` and `listActionsMenu` live in
+    // `TasksView+SingleToolbar.swift`. The list CRUD prompts (create /
+    // rename / delete) live in `TasksView+ListActions.swift`. Both
+    // splits keep this file under the SwiftLint `file_length` /
+    // `type_body_length` budgets.
 
     @ViewBuilder
     private func singleTasksSection(_ payload: TasksViewModel.SinglePayload) -> some View {
@@ -301,18 +229,25 @@ struct TasksView: View {
         return (accountID, listID)
     }
 
-    @discardableResult
-    private func deleteSelected(listID: String, accountID: AccountID) -> KeyPress.Result {
-        guard let id = selectedTaskID else { return .ignored }
+    private func deleteSelected(listID: String, accountID: AccountID) {
+        guard let id = selectedTaskID else { return }
         viewModel.deleteTask(taskID: id, in: listID, account: accountID)
         selectedTaskID = nil
-        return .handled
     }
 
     /// One row inside the single-mode `List`. Extracted from
     /// ``singleTasksList(tasks:accountID:listID:)`` so the parent stays
     /// within SwiftLint's function-body budget — every captured value
     /// is already a local, so the split is purely syntactic.
+    ///
+    /// We don't use `List(selection:)` because macOS hard-codes its
+    /// row-selection bar to the system accent blue and there is no
+    /// public API to retint it. Instead the row tracks its own
+    /// selection via ``TaskRowView/isSelected`` and a single-tap
+    /// gesture wired directly here. Keyboard navigation (arrow keys,
+    /// space, return, delete) is hosted as hidden `.keyboardShortcut`
+    /// buttons further down — they only fire when no `TextField` has
+    /// stolen the keystroke.
     private func singleTaskRow(
         entry: TaskHierarchyEntry,
         accountID: AccountID,
@@ -325,6 +260,7 @@ struct TasksView: View {
             totalSubtasks: entry.totalSubtasks,
             completedSubtasks: entry.completedSubtasks,
             isEditing: editingBinding(for: entry.task.id),
+            isSelected: selectedTaskID == entry.task.id,
             onToggleCompletion: { isCompleted in
                 viewModel.setCompletion(isCompleted, for: entry.task.id, in: listID, account: accountID)
             },
@@ -335,8 +271,13 @@ struct TasksView: View {
                 viewModel.deleteTask(taskID: entry.task.id, in: listID, account: accountID)
             }
         )
-        .tag(entry.task.id)
+        .id(entry.task.id)
         .listRowSeparator(.visible)
+        // Neutralise the row's default background so the row reads as
+        // transparent on the panel material when not selected.
+        .listRowBackground(Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture { selectedTaskID = entry.task.id }
         // Block drag on sub-tasks: the move API needs a `parent`
         // argument to keep the row attached to its parent, and the
         // cross-level promote/demote UX is a separate issue. Leaving
@@ -351,76 +292,92 @@ struct TasksView: View {
         listID: String
     ) -> some View {
         // Flatten the parent/child hierarchy into one annotated array.
-        // The order is preserved (Google Tasks returns sub-tasks already
-        // interleaved by `position`) so a top-level `List`/`ForEach`
-        // still walks the rows in the right order — we only add the
-        // `depth` + sub-task counters that the row needs to render
-        // itself.
+        // The order is preserved (Google Tasks returns sub-tasks
+        // already interleaved by `position`).
         let entries = TaskHierarchy.entries(for: tasks)
-        // Single-mode uses `List` (for native selection + swipe + keyboard
-        // handling), which doesn't honour per-row `.transition(...)`
-        // modifiers — it has its own insert/remove choreography. We
-        // therefore drive the animation at the container level via
-        // `.animation(_, value: tasks.map(\.id))`, which is what
-        // `List` actually observes to schedule its built-in
-        // fade/slide. The aggregated mode below, which uses
-        // `LazyVStack`, can apply the richer custom `.transition`.
-        return List(selection: $selectedTaskID) {
-            ForEach(entries) { entry in
-                singleTaskRow(entry: entry, accountID: accountID, listID: listID)
+        return ScrollViewReader { proxy in
+            List {
+                ForEach(entries) { entry in
+                    singleTaskRow(entry: entry, accountID: accountID, listID: listID)
+                }
+                // Drag-to-reorder. `.onMove` is only honored on
+                // `ForEach` inside a `List` on macOS — it wires up the
+                // native drag handle and the slide-while-dragging
+                // visual. Aggregated mode (LazyVStack) is intentionally
+                // out of scope for P6.3: it would require a hand-rolled
+                // NSItemProvider / .onDrop pipeline.
+                .onMove { indices, newOffset in
+                    guard let sourceIndex = indices.first else { return }
+                    viewModel.moveTask(from: sourceIndex, to: newOffset, in: listID, account: accountID)
+                }
             }
-            // Drag-to-reorder. `.onMove` is only honored on `ForEach`
-            // *inside* a `List` on macOS — it wires up the native drag
-            // handle and the slide-while-dragging visual. Aggregated
-            // mode (LazyVStack) is intentionally out of scope for P6.3:
-            // it would require a hand-rolled NSItemProvider/.onDrop
-            // pipeline.
-            .onMove { indices, newOffset in
-                guard let sourceIndex = indices.first else { return }
-                viewModel.moveTask(
-                    from: sourceIndex,
-                    to: newOffset,
-                    in: listID,
-                    account: accountID
-                )
+            .animation(reduceMotion ? Motion.reduced : Motion.standard, value: tasks.map(\.id))
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .refreshable { await viewModel.refresh() }
+            // Keep the active row visible when the user arrow-keys
+            // off-screen. `selection:` used to handle this for free.
+            .onChange(of: selectedTaskID) { _, new in
+                guard let new else { return }
+                withAnimation(reduceMotion ? Motion.reduced : Motion.quick) {
+                    proxy.scrollTo(new, anchor: .center)
+                }
             }
+            .background(singleListShortcutHosts(entries: entries, listID: listID, accountID: accountID))
         }
-        .animation(reduceMotion ? Motion.reduced : Motion.standard, value: tasks.map(\.id))
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .refreshable { await viewModel.refresh() }
-        // Space → toggle completion of the selected row.
-        .onKeyPress(.space) {
-            guard let id = selectedTaskID,
-                  let task = tasks.first(where: { $0.id == id }) else { return .ignored }
-            viewModel.setCompletion(
-                task.status != .completed,
-                for: id,
-                in: listID,
-                account: accountID
-            )
-            return .handled
-        }
-        // ⌫ → delete the selected row. No confirm — tasks are cheap to
-        // re-create, and the operation rolls back on a server-side
-        // failure anyway. We listen for both `.delete` (forward delete
-        // key) and `.deleteForward` so ⌫ / fn+⌫ both work. ⌘⌫ is
-        // intercepted via a dedicated hidden button below to avoid
-        // clashing with the List's native row-delete intercept.
-        .onKeyPress(.delete) {
-            deleteSelected(listID: listID, accountID: accountID)
-        }
-        .background(
-            Button("Supprimer", action: { _ = deleteSelected(listID: listID, accountID: accountID) })
+    }
+
+    /// Keyboard shortcuts that operate on the currently-selected row.
+    /// Hosted as zero-sized buttons in `.background(...)` so the
+    /// responder chain still picks them up; bare-key shortcuts
+    /// (`.space`, `.return`, `.delete`, arrows) defer naturally to any
+    /// focused `TextField`, which gets the keystroke first.
+    @ViewBuilder
+    private func singleListShortcutHosts(
+        entries: [TaskHierarchyEntry],
+        listID: String,
+        accountID: AccountID
+    ) -> some View {
+        ZStack {
+            Button("Précédent", action: { moveSelection(by: -1, in: entries) })
+                .keyboardShortcut(.upArrow, modifiers: [])
+                .hiddenShortcutHost()
+            Button("Suivant", action: { moveSelection(by: 1, in: entries) })
+                .keyboardShortcut(.downArrow, modifiers: [])
+                .hiddenShortcutHost()
+            Button("Bascule terminée", action: { toggleSelected(entries: entries, listID: listID, accountID: accountID) })
+                .keyboardShortcut(.space, modifiers: [])
+                .hiddenShortcutHost()
+            Button("Supprimer", action: { deleteSelected(listID: listID, accountID: accountID) })
+                .keyboardShortcut(.delete, modifiers: [])
+                .hiddenShortcutHost()
+            Button("Supprimer (⌘)", action: { deleteSelected(listID: listID, accountID: accountID) })
                 .keyboardShortcut(.delete, modifiers: .command)
                 .hiddenShortcutHost()
-        )
-        // Return → enter inline edit on the selected row.
-        .onKeyPress(.return) {
-            guard let id = selectedTaskID else { return .ignored }
-            editingTaskID = id
-            return .handled
+            Button("Éditer", action: { if let id = selectedTaskID { editingTaskID = id } })
+                .keyboardShortcut(.return, modifiers: [])
+                .hiddenShortcutHost()
         }
+    }
+
+    private func moveSelection(by delta: Int, in entries: [TaskHierarchyEntry]) {
+        guard !entries.isEmpty else { return }
+        if let id = selectedTaskID, let idx = entries.firstIndex(where: { $0.task.id == id }) {
+            let next = max(0, min(entries.count - 1, idx + delta))
+            selectedTaskID = entries[next].task.id
+        } else {
+            selectedTaskID = entries[delta > 0 ? 0 : entries.count - 1].task.id
+        }
+    }
+
+    private func toggleSelected(
+        entries: [TaskHierarchyEntry],
+        listID: String,
+        accountID: AccountID
+    ) {
+        guard let id = selectedTaskID,
+              let entry = entries.first(where: { $0.task.id == id }) else { return }
+        viewModel.setCompletion(entry.task.status != .completed, for: id, in: listID, account: accountID)
     }
 
     // MARK: - All-accounts mode
@@ -434,11 +391,11 @@ struct TasksView: View {
                 message: "Ajoute un compte Google pour voir tes tâches ici."
             )
         } else {
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-                HStack(spacing: Spacing.sm) {
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
                     Text("Tous les comptes")
-                        .font(Typography.titleMedium)
-                        .foregroundStyle(Palette.textSecondary)
+                        .font(Typography.titleHero)
+                        .foregroundStyle(Palette.textPrimary)
                         .accessibilityAddTraits(.isHeader)
                     Spacer(minLength: 0)
                     CompletedToggle(showsCompleted: viewModel.showsCompleted) {
@@ -448,9 +405,8 @@ struct TasksView: View {
                         Task { await viewModel.refresh() }
                     }
                 }
-                Divider()
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: Spacing.lg) {
+                    LazyVStack(alignment: .leading, spacing: Spacing.xl) {
                         ForEach(sections) { section in
                             AccountSectionView(
                                 section: section,

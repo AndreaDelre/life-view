@@ -9,6 +9,12 @@ import SwiftUI
 public enum Typography {
     // MARK: - Titles
 
+    /// 28pt-ish hero title — used by the single-mode list title so the
+    /// current list reads as the unmistakable page heading. Bold by
+    /// design: SwiftUI's `.title` system style already scales with
+    /// Dynamic Type, the weight is what makes it feel like a
+    /// "page title" instead of a section label.
+    public static let titleHero = Font.title.weight(.bold)
     /// 22pt-ish title — used by the panel header.
     public static let titleLarge = Font.title2.weight(.semibold)
     /// 17pt-ish subtitle — used by section headers (e.g. "Tous les
@@ -17,6 +23,10 @@ public enum Typography {
     /// 15pt callout, semibold — used for the per-account header in
     /// aggregated mode.
     public static let titleSmall = Font.callout.weight(.semibold)
+    /// Section-row title in aggregated mode — body weight bumped to
+    /// semibold so each list header carries the same visual weight as
+    /// a Notion/Todoist toggle-section.
+    public static let sectionTitle = Font.body.weight(.semibold)
 
     // MARK: - Body
 

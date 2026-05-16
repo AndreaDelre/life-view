@@ -24,11 +24,19 @@ struct TaskRowView: View {
     /// ``totalSubtasks`` for the `X/Y` counter.
     var completedSubtasks: Int = 0
     @Binding var isEditing: Bool
+    /// Whether the row is the currently-selected one. Single-mode
+    /// drives this from a custom selection state (we don't use
+    /// `List(selection:)` because macOS hard-codes the selection bar
+    /// to the system accent blue and there's no public API to retint
+    /// it). Aggregated-mode leaves the default `false` — there is no
+    /// row-level cursor there.
+    var isSelected: Bool = false
     let onToggleCompletion: (Bool) -> Void
     let onEditTitle: (String) -> Void
     let onDelete: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering: Bool = false
 
     /// Per-level indent applied to sub-tasks. Sized so the child's
     /// checkbox sits roughly under the parent's title baseline — same
@@ -38,26 +46,31 @@ struct TaskRowView: View {
     private var indent: CGFloat { CGFloat(depth) * Self.depthIndent }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+        // Center alignment (rather than firstTextBaseline) so the
+        // bigger checkbox glyph dictates the row's vertical midline
+        // and the trailing due-date / pending pieces line up cleanly
+        // alongside the title text.
+        HStack(alignment: .center, spacing: Spacing.sm) {
             checkbox
 
-            VStack(alignment: .leading, spacing: Spacing.xxs) {
-                titleRow
-                    // Strike-through + color shift on completion are
-                    // animated together so the row "settles" into its
-                    // completed state instead of snapping. Reduce-motion
-                    // drops the timing to a plain cross-fade through
-                    // `Motion.reduced` (same easing, no spring/bounce).
-                    .animation(reduceMotion ? Motion.reduced : Motion.emphasised, value: task.status)
+            titleRow
+                // Strike-through + color shift on completion are
+                // animated together so the row "settles" into its
+                // completed state instead of snapping. Reduce-motion
+                // drops the timing to a plain cross-fade through
+                // `Motion.reduced` (same easing, no spring/bounce).
+                .animation(reduceMotion ? Motion.reduced : Motion.emphasised, value: task.status)
 
-                if let due = task.due {
-                    Text(formatDue(due))
-                        .font(Typography.caption)
-                        .foregroundStyle(Palette.textSecondary)
-                }
+            Spacer(minLength: Spacing.sm)
+
+            if let due = task.due {
+                Text(formatDue(due))
+                    .font(Typography.caption)
+                    .foregroundStyle(Palette.textSecondary)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .accessibilityHidden(true)
             }
-
-            Spacer(minLength: 0)
 
             if isPending {
                 ProgressView()
@@ -67,7 +80,24 @@ struct TaskRowView: View {
         }
         .padding(.leading, indent)
         .background(alignment: .leading) { subtaskGuide }
-        .padding(.vertical, Spacing.xs)
+        .padding(.vertical, Spacing.sm)
+        .padding(.horizontal, Spacing.xs)
+        .background(
+            // Single highlight layer covering selection / hover / idle.
+            // Drawn with a rounded shape so the affordance reads as a
+            // modern card rather than the flat full-width bar macOS
+            // `List(selection:)` would normally draw. We toggle opacity
+            // (not view presence) so SwiftUI can cross-fade between
+            // states instead of snapping.
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                .fill(rowTint)
+                .opacity(rowTint == .clear ? 0 : 1)
+        )
+        .animation(reduceMotion ? Motion.reduced : Motion.quick, value: isHovering)
+        .animation(reduceMotion ? Motion.reduced : Motion.quick, value: isSelected)
+        .onHover { hovering in
+            isHovering = hovering
+        }
         .opacity(isPending ? 0.55 : 1.0)
         .contentShape(Rectangle())
         .contextMenu {
@@ -124,6 +154,15 @@ struct TaskRowView: View {
         }
     }
 
+    /// Pre-resolved row tint. Pending wins (busy reads as "don't
+    /// touch me"), then selected beats hover beats idle.
+    private var rowTint: Color {
+        if isPending { return .clear }
+        if isSelected { return Palette.surfaceRowSelected }
+        if isHovering { return Palette.surfaceHover }
+        return .clear
+    }
+
     private var checkbox: some View {
         Button {
             onToggleCompletion(task.status != .completed)
@@ -132,7 +171,12 @@ struct TaskRowView: View {
                 .foregroundStyle(task.status == .completed ? Palette.accent : Palette.textSecondary)
                 // Sub-task checkboxes shrink one step to reinforce the
                 // hierarchy at a glance — same trick Todoist uses.
-                .font(depth > 0 ? Typography.caption : Typography.body)
+                // Top-level checkboxes use `.title3` (~20pt) so the
+                // glyph reads as a chunky, deliberately-targetable
+                // affordance — the previous body-size circle felt
+                // hairline and crowded the title text.
+                .font(depth > 0 ? Typography.body : .title3)
+                .symbolRenderingMode(.hierarchical)
                 .contentTransition(.symbolEffect(.replace))
                 .animation(reduceMotion ? Motion.reduced : Motion.quick, value: task.status)
         }

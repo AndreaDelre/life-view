@@ -66,11 +66,13 @@ struct PanelContentView: View {
             if let error = accountsViewModel.errorMessage {
                 inlineError(error)
             }
-            Divider()
             content
+                .padding(.top, Spacing.xs)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(Spacing.lg)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.top, Spacing.lg)
+        .padding(.bottom, Spacing.md)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             VisualEffectBackground()
@@ -89,20 +91,22 @@ struct PanelContentView: View {
     private var header: some View {
         HStack(spacing: Spacing.sm) {
             Image(systemName: "checklist")
-                .font(.title2)
-                .foregroundStyle(.tint)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Palette.accent)
                 .accessibilityHidden(true)
             Text("LifeView")
                 .font(Typography.titleLarge)
                 .accessibilityAddTraits(.isHeader)
             Spacer()
-            if let syncCoordinator {
-                OfflineIndicatorView(coordinator: syncCoordinator)
+            HStack(spacing: Spacing.xs) {
+                if let syncCoordinator {
+                    OfflineIndicatorView(coordinator: syncCoordinator)
+                }
+                if let notificationsCoordinator {
+                    NotificationsToggleButton(coordinator: notificationsCoordinator)
+                }
+                helpButton
             }
-            if let notificationsCoordinator {
-                NotificationsToggleButton(coordinator: notificationsCoordinator)
-            }
-            helpButton
         }
     }
 

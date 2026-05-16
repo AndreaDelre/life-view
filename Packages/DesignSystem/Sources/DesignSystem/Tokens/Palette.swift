@@ -46,6 +46,14 @@ public enum Palette {
     /// — same behaviour as a `List` selection or a Finder row.
     public static let surfaceSelected = Color(nsColor: .selectedContentBackgroundColor)
 
+    /// Neutral row-selected tint — stronger than ``surfaceHover`` but
+    /// still derived from `.labelColor` so it never picks up the macOS
+    /// accent blue. Used by `TaskRowView` so a clicked row reads as
+    /// "selected" without flooding the panel with the system accent.
+    /// Alpha sits between the hover step (0.10) and a full row fill so
+    /// hover → selected stays a perceivable step up.
+    public static let surfaceRowSelected = Color(nsColor: .labelColor).opacity(0.16)
+
     /// Soft tint used to highlight a warning chip / banner without
     /// hijacking the whole row. Derived from `.systemOrange` so it
     /// follows the system warm-warning hue in both modes. Bumped from
@@ -54,6 +62,23 @@ public enum Palette {
     /// barely visible on the sidebar material and failed the 3:1
     /// non-text-contrast threshold against the panel background.
     public static let surfaceWarning = Color(nsColor: .systemOrange).opacity(0.18)
+
+    /// Subtle "card" surface used by the capture row and other inline
+    /// inputs to lift them off the panel material. Low alpha so the
+    /// underlying `NSVisualEffectView` translucency stays the dominant
+    /// visual — the card reads as a soft inset, not a hard panel.
+    public static let surfaceCard = Color(nsColor: .labelColor).opacity(0.05)
+
+    /// 1pt hairline used to outline a card surface. Pairs with
+    /// ``surfaceCard`` to give the input a perceptible boundary on
+    /// translucent panel materials where a pure fill would otherwise
+    /// blur into the background.
+    public static let surfaceCardStroke = Color(nsColor: .separatorColor).opacity(0.65)
+
+    /// Soft accent surface — accent-tinted with low alpha, used by the
+    /// count badges next to section titles. Reads as a quiet brand
+    /// touch without competing with the title weight itself.
+    public static let surfaceAccentSoft = Color.accentColor.opacity(0.12)
 
     // MARK: - Text
 
@@ -78,7 +103,17 @@ public enum Palette {
 
     /// Brand / accent colour. We follow the user's macOS accent so the
     /// app feels native — there is intentionally no custom brand hue.
-    public static let accent = Color.accentColor
+    ///
+    /// Sourced from AppKit's `.controlAccentColor` (rather than
+    /// SwiftUI's `Color.accentColor`) so it does **not** participate in
+    /// the SwiftUI tint cascade. We deliberately override `.tint(...)`
+    /// on the single-mode `List` to neutralise its native blue
+    /// selection bar — if `Palette.accent` resolved through that
+    /// cascade, every accent-coloured glyph inside a row (checked
+    /// checkbox, completion tick, etc.) would inherit the neutral
+    /// override and lose its identity. `Color(nsColor:)` short-circuits
+    /// the cascade and always returns the user's chosen system accent.
+    public static let accent = Color(nsColor: .controlAccentColor)
     /// Soft hairline separator. Maps to AppKit's standard separator.
     public static let separator = Color(nsColor: .separatorColor)
     /// Destructive / danger surface (delete, irrecoverable action).
