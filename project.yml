@@ -70,8 +70,29 @@ targets:
       - package: DesignSystem
     scheme:
       testTargets:
+        - LifeViewTests
         - package: Core/CoreTests
         - package: GoogleAuth/GoogleAuthTests
         - package: GoogleTasksClient/GoogleTasksClientTests
         - package: DesignSystem/DesignSystemTests
-      gatherCoverageData: true
+      # Coverage temporarily disabled: turning it on instruments the
+      # test target with `__llvm_profile_runtime` calls that aren't
+      # resolved against SPM-built framework dependencies (LifeViewTests
+      # links many). Re-enable when we move to a uniform coverage
+      # strategy across SPM packages.
+      gatherCoverageData: false
+
+  LifeViewTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: LifeViewTests
+    dependencies:
+      - target: LifeView
+    settings:
+      base:
+        PRODUCT_NAME: LifeViewTests
+        PRODUCT_BUNDLE_IDENTIFIER: fr.andreadelre.LifeViewTests
+        ENABLE_HARDENED_RUNTIME: NO
+        ENABLE_APP_SANDBOX: NO
