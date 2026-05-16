@@ -114,20 +114,8 @@ struct TasksView: View {
     }
 
     private func singleToolbar(_ payload: TasksViewModel.SinglePayload) -> some View {
-        let selectionBinding = Binding<String>(
-            get: { payload.selectedListID ?? payload.lists.first?.id ?? "" },
-            set: { viewModel.selectList($0) }
-        )
-
-        return HStack(spacing: 6) {
-            Picker("Liste", selection: selectionBinding) {
-                ForEach(payload.lists) { list in
-                    Text(list.title).tag(list.id)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .controlSize(.regular)
+        HStack(spacing: 6) {
+            listMenu(payload)
 
             Spacer(minLength: 0)
 
@@ -138,6 +126,95 @@ struct TasksView: View {
                 Task { await viewModel.refresh() }
             }
         }
+    }
+
+    /// Combined list-picker + list-CRUD entry point. Lives behind a
+    /// single `Menu` to keep the toolbar compact: pick a list from the
+    /// top section, then below the divider find Nouvelle / Renommer /
+    /// Supprimer for the currently-selected list.
+    private func listMenu(_ payload: TasksViewModel.SinglePayload) -> some View {
+        let selectedTitle = payload.lists
+            .first(where: { $0.id == payload.selectedListID })?.title
+            ?? payload.lists.first?.title
+            ?? "Listes"
+        let selectedList = payload.lists.first(where: { $0.id == payload.selectedListID })
+
+        return Menu {
+            ForEach(payload.lists) { list in
+                Button {
+                    viewModel.selectList(list.id)
+                } label: {
+                    if list.id == payload.selectedListID {
+                        Label(list.title, systemImage: "checkmark")
+                    } else {
+                        Text(list.title)
+                    }
+                }
+            }
+            Divider()
+            Button {
+                presentCreateList()
+            } label: {
+                Label("Nouvelle liste…", systemImage: "plus")
+            }
+            if let selectedList, !selectedList.id.hasPrefix("local-list-") {
+                Divider()
+                Button {
+                    presentRenameList(selectedList)
+                } label: {
+                    Label("Renommer la liste…", systemImage: "pencil")
+                }
+                Button(role: .destructive) {
+                    presentDeleteList(selectedList)
+                } label: {
+                    Label("Supprimer la liste…", systemImage: "trash")
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(selectedTitle).lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private func presentCreateList() {
+        guard case let .single(accountID) = viewModel.selection else { return }
+        guard let title = ConfirmationAlert.prompt(
+            title: "Nouvelle liste",
+            message: "Donne un nom à ta nouvelle liste de tâches.",
+            placeholder: "Ex. Courses",
+            confirmLabel: "Créer"
+        ) else { return }
+        _ = viewModel.createList(title: title)
+        _ = accountID
+    }
+
+    private func presentRenameList(_ list: TaskList) {
+        guard case let .single(accountID) = viewModel.selection else { return }
+        guard let newTitle = ConfirmationAlert.prompt(
+            title: "Renommer la liste",
+            placeholder: "Nom de la liste",
+            initialValue: list.title,
+            confirmLabel: "Renommer"
+        ) else { return }
+        viewModel.renameList(listID: list.id, to: newTitle, account: accountID)
+    }
+
+    private func presentDeleteList(_ list: TaskList) {
+        guard case let .single(accountID) = viewModel.selection else { return }
+        let confirmed = ConfirmationAlert.confirm(
+            title: "Supprimer « \(list.title) » ?",
+            message: "Toutes les tâches de cette liste seront aussi supprimées. Cette action est irréversible.",
+            confirmLabel: "Supprimer",
+            isDestructive: true
+        )
+        guard confirmed else { return }
+        viewModel.deleteList(listID: list.id, account: accountID)
     }
 
     @ViewBuilder
@@ -169,10 +246,15 @@ struct TasksView: View {
         tasks: [TaskItem],
         payload: TasksViewModel.SinglePayload
     ) -> some View {
-        if case let .single(accountID) = viewModel.selection,
-           let listID = payload.selectedListID {
-            singleTasksList(tasks: tasks, accountID: accountID, listID: listID)
+        if let context = singleListContext(payload: payload) {
+            singleTasksList(tasks: tasks, accountID: context.accountID, listID: context.listID)
         }
+    }
+
+    private func singleListContext(payload: TasksViewModel.SinglePayload) -> (accountID: AccountID, listID: String)? {
+        guard case let .single(accountID) = viewModel.selection,
+              let listID = payload.selectedListID else { return nil }
+        return (accountID, listID)
     }
 
     private func singleTasksList(
@@ -280,119 +362,6 @@ struct TasksView: View {
     private var loadingPlaceholder: some View {
         ProgressView()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-// MARK: - Aggregated section
-
-private struct AccountSectionView: View {
-    let section: TasksViewModel.AccountSection
-    @Bindable var viewModel: TasksViewModel
-    let editingBinding: (String) -> Binding<Bool>
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            header
-            ForEach(section.slices) { slice in
-                ListSliceView(
-                    slice: slice,
-                    accountID: section.account.id,
-                    viewModel: viewModel,
-                    editingBinding: editingBinding
-                )
-            }
-        }
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            AccountAvatarView(url: section.account.profile.avatarURL)
-                .frame(width: 22, height: 22)
-            VStack(alignment: .leading, spacing: 0) {
-                if let name = section.account.profile.displayName, !name.isEmpty {
-                    Text(name).font(.callout.weight(.semibold))
-                }
-                Text(section.account.profile.email)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-private struct ListSliceView: View {
-    let slice: TasksViewModel.ListSlice
-    let accountID: AccountID
-    @Bindable var viewModel: TasksViewModel
-    let editingBinding: (String) -> Binding<Bool>
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(slice.list.title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
-                .padding(.leading, 4)
-            switch slice.tasksState {
-            case .loading:
-                HStack { ProgressView().controlSize(.small)
-                    Spacer()
-                }
-                .padding(.leading, 4)
-            case let .error(message):
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 4)
-            case let .loaded(tasks):
-                if tasks.isEmpty {
-                    Text("—")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .padding(.leading, 4)
-                } else {
-                    // Aggregated mode renders rows inside a VStack
-                    // (one ScrollView for the whole panel), so swipes
-                    // and List-driven keyboard shortcuts are not
-                    // available here — checkbox tap, context menu and
-                    // double-click to edit cover the same mutations.
-                    VStack(spacing: 0) {
-                        ForEach(tasks) { task in
-                            TaskRowView(
-                                task: task,
-                                isPending: viewModel.isPending(taskID: task.id),
-                                isEditing: editingBinding(task.id),
-                                onToggleCompletion: { isCompleted in
-                                    viewModel.setCompletion(
-                                        isCompleted,
-                                        for: task.id,
-                                        in: slice.list.id,
-                                        account: accountID
-                                    )
-                                },
-                                onEditTitle: { newTitle in
-                                    viewModel.editTaskTitle(
-                                        newTitle,
-                                        for: task.id,
-                                        in: slice.list.id,
-                                        account: accountID
-                                    )
-                                },
-                                onDelete: {
-                                    viewModel.deleteTask(
-                                        taskID: task.id,
-                                        in: slice.list.id,
-                                        account: accountID
-                                    )
-                                }
-                            )
-                            .padding(.vertical, 1)
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
