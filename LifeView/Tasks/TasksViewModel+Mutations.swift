@@ -79,7 +79,7 @@ extension TasksViewModel {
                 mutateTaskList(accountID: accountID, listID: listID) { items in
                     if let idx = items.firstIndex(where: { $0.id == localID }) {
                         items[idx] = inserted
-                        items.sort { $0.position < $1.position }
+                        items = TaskItem.hierarchicallySorted(items)
                     }
                 }
                 persistTaskUpsert(inserted, listID: listID, accountID: accountID)
@@ -266,7 +266,7 @@ extension TasksViewModel {
                 mutateTaskList(accountID: accountID, listID: listID) { items in
                     let insertAt = min(beforeIndex, items.count)
                     items.insert(beforeTask, at: insertAt)
-                    items.sort { $0.position < $1.position }
+                    items = TaskItem.hierarchicallySorted(items)
                 }
                 lastError = Self.messageFor(error)
             }
@@ -435,7 +435,7 @@ extension TasksViewModel {
                         // ended up in a view that should display it — put
                         // it back in position order.
                         items.append(updated)
-                        items.sort { $0.position < $1.position }
+                        items = TaskItem.hierarchicallySorted(items)
                     }
                 }
                 persistTaskUpsert(updated, listID: listID, accountID: accountID)
@@ -458,7 +458,7 @@ extension TasksViewModel {
                         items[idx] = originalTask
                     } else {
                         items.append(originalTask)
-                        items.sort { $0.position < $1.position }
+                        items = TaskItem.hierarchicallySorted(items)
                     }
                 }
                 lastError = Self.messageFor(error)

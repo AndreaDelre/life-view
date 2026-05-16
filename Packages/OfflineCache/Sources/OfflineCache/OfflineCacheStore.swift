@@ -103,6 +103,12 @@ public actor OfflineCacheStore {
                 guard let item = row.domain else { continue }
                 grouped[row.listID, default: []].append(item)
             }
+            // SQLite gives us tasks sorted by `position` globally, but
+            // the position string is sibling-local — re-arrange each
+            // list so children sit immediately under their parent.
+            for key in grouped.keys {
+                grouped[key] = TaskItem.hierarchicallySorted(grouped[key] ?? [])
+            }
             return OfflineCacheSnapshot(lists: lists, tasksByList: grouped)
         }
     }
@@ -176,16 +182,18 @@ public actor OfflineCacheStore {
         }
     }
 
-    /// Returns cached tasks for one list, sorted by `position`. Mostly
+    /// Returns cached tasks for one list, sorted hierarchically (each
+    /// top-level task immediately followed by its sub-tasks). Mostly
     /// used in tests; the view-model reads via ``snapshot``.
     public func loadTasks(listID: String, accountID: AccountID) throws -> [TaskItem] {
         try dbWriter.read { db in
-            try TaskRecord
+            let items = try TaskRecord
                 .filter(Column("accountID") == accountID.rawValue)
                 .filter(Column("listID") == listID)
                 .order(Column("position"))
                 .fetchAll(db)
                 .compactMap(\.domain)
+            return TaskItem.hierarchicallySorted(items)
         }
     }
 

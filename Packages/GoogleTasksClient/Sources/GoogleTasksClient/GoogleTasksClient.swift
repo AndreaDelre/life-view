@@ -96,8 +96,11 @@ public actor GoogleTasksClient {
             items: \.items,
             nextToken: \.nextPageToken
         )
-        let mapped = raw.compactMap { $0.toDomain() }
-            .sorted { $0.position < $1.position }
+        // Hierarchical sort: top-level tasks in position order, each
+        // followed by its sub-tasks in their own position order.
+        // ``TaskItem/position`` is scoped to siblings, so a flat sort
+        // would interleave children of different parents.
+        let mapped = TaskItem.hierarchicallySorted(raw.compactMap { $0.toDomain() })
         cachedTasks[cacheKey] = mapped
         logger.debug("Fetched \(mapped.count, privacy: .public) task(s) for list")
         return mapped
@@ -245,7 +248,7 @@ public actor GoogleTasksClient {
             var list = cachedTasks[key] ?? []
             list.removeAll { $0.id == task.id }
             list.append(task)
-            list.sort { $0.position < $1.position }
+            list = TaskItem.hierarchicallySorted(list)
             cachedTasks[key] = list
         }
     }
@@ -259,7 +262,7 @@ public actor GoogleTasksClient {
             // just got marked as completed.
             if key.showCompleted || task.status == .needsAction {
                 list.append(task)
-                list.sort { $0.position < $1.position }
+                list = TaskItem.hierarchicallySorted(list)
             }
             cachedTasks[key] = list
         }
