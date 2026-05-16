@@ -27,12 +27,20 @@ public enum Palette {
     /// adapts to light & dark.
     public static let surfaceBackground = Color(nsColor: .controlBackgroundColor)
 
-    /// Hover background for an interactive cell.
+    /// Hover background for an interactive cell. Also used by the help
+    /// overlay to chip-out shortcut keys.
     ///
     /// macOS doesn't expose a public "row hover" colour; the convention
     /// in AppKit is a low-alpha label tint so it works in light & dark
     /// without breaking translucency on top of a `NSVisualEffectView`.
-    public static let surfaceHover = Color(nsColor: .labelColor).opacity(0.06)
+    /// Bumped from 0.06 → 0.10 alpha so the shortcut chips in the
+    /// help overlay (`HelpOverlayView`) draw a perceptible separation
+    /// between the key glyph and the panel background — at 0.06 the
+    /// chip was visually merging into the sidebar material in light
+    /// mode (failing 3:1 non-text contrast). The hover-row use-case
+    /// stays subtle enough at 0.10 to read as a hover rather than a
+    /// selection.
+    public static let surfaceHover = Color(nsColor: .labelColor).opacity(0.10)
 
     /// Selected-row background, defers to the user-chosen accent colour
     /// — same behaviour as a `List` selection or a Finder row.
@@ -40,8 +48,12 @@ public enum Palette {
 
     /// Soft tint used to highlight a warning chip / banner without
     /// hijacking the whole row. Derived from `.systemOrange` so it
-    /// follows the system warm-warning hue in both modes.
-    public static let surfaceWarning = Color(nsColor: .systemOrange).opacity(0.08)
+    /// follows the system warm-warning hue in both modes. Bumped from
+    /// 0.08 → 0.18 alpha so the chip is unambiguously a warning
+    /// surface and not just a slight wash — the previous tint was
+    /// barely visible on the sidebar material and failed the 3:1
+    /// non-text-contrast threshold against the panel background.
+    public static let surfaceWarning = Color(nsColor: .systemOrange).opacity(0.18)
 
     // MARK: - Text
 
@@ -50,7 +62,17 @@ public enum Palette {
     /// Secondary text — due dates, helper copy, dimmed labels.
     public static let textSecondary = Color(nsColor: .secondaryLabelColor)
     /// Tertiary text — placeholders, "—" empty markers.
-    public static let textTertiary = Color(nsColor: .tertiaryLabelColor)
+    ///
+    /// macOS' native `.tertiaryLabelColor` sits around 26% alpha on
+    /// `.labelColor`, which gives a ~3.2:1 contrast on the panel
+    /// material — fine for purely decorative dashes, **not** enough
+    /// for a glyph the user is meant to read. We promote it to
+    /// `.secondaryLabelColor` so any text drawn with this token still
+    /// clears the 4.5:1 WCAG AA threshold against the sidebar
+    /// material. The tertiary semantic is preserved at call-sites
+    /// (lowest of three weights) — only the underlying colour gets
+    /// slightly darker.
+    public static let textTertiary = Color(nsColor: .secondaryLabelColor)
 
     // MARK: - Accents & status
 

@@ -9,14 +9,19 @@ struct SignedOutView: View {
     var body: some View {
         VStack(spacing: Spacing.lg) {
             Image(systemName: "person.crop.circle.badge.plus")
-                // 44pt hero glyph — bespoke size for the sign-in screen,
-                // sits above the typography scale on purpose.
-                .font(.system(size: 44, weight: .light))
+                // Hero glyph for the sign-in screen — scaled relative to
+                // `.largeTitle` so it grows with the user's Dynamic Type
+                // setting. The previous fixed 44pt swallowed users who
+                // bumped the system text size up.
+                .font(.largeTitle)
+                .imageScale(.large)
                 .foregroundStyle(.tint)
+                .accessibilityHidden(true)
 
             VStack(spacing: Spacing.xs) {
                 Text("Connecte ton compte Google")
                     .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
                 Text("LifeView a besoin d’accéder à Google Tasks pour afficher tes listes.")
                     .font(Typography.callout)
                     .foregroundStyle(Palette.textSecondary)
@@ -29,6 +34,7 @@ struct SignedOutView: View {
                         ProgressView().controlSize(.small)
                     } else {
                         Image(systemName: "g.circle.fill")
+                            .accessibilityHidden(true)
                     }
                     Text("Se connecter à Google")
                 }
@@ -37,6 +43,8 @@ struct SignedOutView: View {
             .controlSize(.large)
             .buttonStyle(.borderedProminent)
             .disabled(isWorking)
+            .accessibilityLabel(isWorking ? "Connexion en cours" : "Se connecter à Google")
+            .accessibilityHint("Lance la procédure d’authentification Google dans le navigateur")
         }
         .padding(.horizontal, Spacing.sm)
         .frame(maxWidth: .infinity)

@@ -237,10 +237,13 @@ struct TasksView: View {
                 Image(systemName: "chevron.down")
                     .imageScale(.small)
                     .foregroundStyle(Palette.textSecondary)
+                    .accessibilityHidden(true)
             }
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        .accessibilityLabel("Liste : \(selectedTitle)")
+        .accessibilityHint("Change de liste ou crée, renomme, supprime la liste courante")
     }
 
     // `presentCreateList` / `presentRenameList` / `presentDeleteList`
@@ -397,6 +400,7 @@ struct TasksView: View {
                     Text("Tous les comptes")
                         .font(Typography.titleMedium)
                         .foregroundStyle(Palette.textSecondary)
+                        .accessibilityAddTraits(.isHeader)
                     Spacer(minLength: 0)
                     CompletedToggle(showsCompleted: viewModel.showsCompleted) {
                         viewModel.toggleShowsCompleted()

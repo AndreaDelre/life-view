@@ -32,11 +32,16 @@ struct HelpOverlayView: View {
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onDismiss)
                 .transition(.opacity)
+                .accessibilityHidden(true)
 
             card
                 .transition(.scale(scale: 0.96).combined(with: .opacity))
         }
         .animation(.easeInOut(duration: 0.16), value: true)
+        // Mark the whole overlay as a modal region so VoiceOver knows
+        // it stole focus from the underlying tasks view and won't try
+        // to escape past the card boundary while it's open.
+        .accessibilityAddTraits(.isModal)
     }
 
     private var card: some View {
@@ -61,6 +66,7 @@ struct HelpOverlayView: View {
         HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
             Text("Raccourcis clavier")
                 .font(Typography.titleMedium)
+                .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)
             Button(action: onDismiss) {
                 Image(systemName: "xmark.circle.fill")
@@ -79,6 +85,7 @@ struct HelpOverlayView: View {
                 .font(Typography.captionEmphasised)
                 .foregroundStyle(Palette.textSecondary)
                 .padding(.bottom, Spacing.xxs)
+                .accessibilityAddTraits(.isHeader)
             ForEach(section.entries) { entry in
                 row(entry)
             }
@@ -102,6 +109,11 @@ struct HelpOverlayView: View {
                 .foregroundStyle(Palette.textPrimary)
             Spacer(minLength: 0)
         }
+        // Combine the key chip + description so VoiceOver reads
+        // "N, Nouvelle tâche" as a single utterance instead of two
+        // separate stops. The traits chosen via `accessibilityElement`
+        // default to `.staticText`, which is what we want here.
+        .accessibilityElement(children: .combine)
     }
 }
 

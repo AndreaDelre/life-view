@@ -38,6 +38,7 @@ struct AccountSectionView: View {
         HStack(spacing: Spacing.sm) {
             AccountAvatarView(url: section.account.profile.avatarURL)
                 .frame(width: IconSize.md, height: IconSize.md)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 0) {
                 if let name = section.account.profile.displayName, !name.isEmpty {
                     Text(name).font(Typography.titleSmall)
@@ -49,6 +50,11 @@ struct AccountSectionView: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, Spacing.xxs)
+        // Header per account in aggregated mode — combine the avatar +
+        // display name + email into one VoiceOver stop and tag it as a
+        // header so users can jump between accounts with the rotor.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -66,12 +72,14 @@ struct ListSliceView: View {
                 .font(Typography.subheadline)
                 .foregroundStyle(Palette.textPrimary)
                 .padding(.leading, Spacing.xs)
+                .accessibilityAddTraits(.isHeader)
             switch slice.tasksState {
             case .loading:
                 HStack { ProgressView().controlSize(.small)
                     Spacer()
                 }
                 .padding(.leading, Spacing.xs)
+                .accessibilityLabel("Chargement des tâches de \(slice.list.title)")
             case let .error(message):
                 Text(message)
                     .font(Typography.caption)
@@ -83,6 +91,7 @@ struct ListSliceView: View {
                         .font(Typography.caption)
                         .foregroundStyle(Palette.textTertiary)
                         .padding(.leading, Spacing.xs)
+                        .accessibilityLabel("Aucune tâche dans \(slice.list.title)")
                 } else {
                     tasksStack(tasks)
                 }
