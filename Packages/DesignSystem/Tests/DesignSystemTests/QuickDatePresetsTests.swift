@@ -2,28 +2,42 @@
 import XCTest
 
 final class QuickDatePresetsTests: XCTestCase {
-    private var monFirstCalendar: Calendar {
+    private var parisCalendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.firstWeekday = 2 // Monday
         calendar.timeZone = TimeZone(identifier: "Europe/Paris") ?? .gmt
         return calendar
     }
 
-    private var sunFirstCalendar: Calendar {
+    private var newYorkCalendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.firstWeekday = 1 // Sunday
         calendar.timeZone = TimeZone(identifier: "America/New_York") ?? .gmt
         return calendar
     }
 
-    func testTodayStripsTimeComponent() {
-        // 2026-05-15 14:32 in Paris → 2026-05-15 00:00 in Paris.
-        let calendar = monFirstCalendar
+    private var utcCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+        return calendar
+    }
+
+    /// Convenience: extract the date portion of the result as seen in
+    /// UTC, since the contract is "midnight UTC of the local day".
+    private func utcDay(of date: Date) -> DateComponents {
+        utcCalendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+    }
+
+    // MARK: - today
+
+    func testTodayIsMidnightUTCOfLocalDay() {
+        // 2026-05-15 14:32 in Paris is still May 15 UTC.
+        let calendar = parisCalendar
         let now = calendar.date(from: DateComponents(year: 2026, month: 5, day: 15, hour: 14, minute: 32)) ?? Date()
 
         let today = QuickDatePresets.today(calendar: calendar, now: now)
 
-        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: today)
+        let components = utcDay(of: today)
         XCTAssertEqual(components.year, 2026)
         XCTAssertEqual(components.month, 5)
         XCTAssertEqual(components.day, 15)
@@ -31,50 +45,78 @@ final class QuickDatePresetsTests: XCTestCase {
         XCTAssertEqual(components.minute, 0)
     }
 
-    func testTomorrowIsExactlyOneDayAfterToday() {
-        let calendar = monFirstCalendar
-        let now = calendar.date(from: DateComponents(year: 2026, month: 5, day: 15)) ?? Date()
+    func testTodayPreservesLocalDayAcrossTimeZoneBoundary() {
+        // Regression: 2026-05-15 01:00 in Paris was emitted as midnight
+        // local → 2026-05-14T23:00:00Z → Google read "hier". With the
+        // fix, today returns 2026-05-15T00:00:00Z regardless of the
+        // local hour.
+        let calendar = parisCalendar
+        let earlyMorning = calendar.date(from: DateComponents(year: 2026, month: 5, day: 15, hour: 1)) ?? Date()
 
-        let today = QuickDatePresets.today(calendar: calendar, now: now)
-        let tomorrow = QuickDatePresets.tomorrow(calendar: calendar, now: now)
-
-        let delta = calendar.dateComponents([.day], from: today, to: tomorrow).day
-        XCTAssertEqual(delta, 1)
+        let today = QuickDatePresets.today(calendar: calendar, now: earlyMorning)
+        let components = utcDay(of: today)
+        XCTAssertEqual(components.day, 15, "must reflect the local day, not the UTC day of midnight local")
     }
 
-    func testEndOfWeekIsNextSundayWhenWeekStartsMonday() {
-        let calendar = monFirstCalendar
-        // 2026-05-15 is a Friday (year=2026, month=5, day=15 → ISO Fri).
-        let friday = calendar.date(from: DateComponents(year: 2026, month: 5, day: 15)) ?? Date()
+    // MARK: - tomorrow
 
-        let endOfWeek = QuickDatePresets.endOfWeek(calendar: calendar, now: friday)
-        // Expected: Sunday 2026-05-17.
-        let components = calendar.dateComponents([.year, .month, .day, .weekday], from: endOfWeek)
+    func testTomorrowIsOneLocalDayAfterToday() {
+        let calendar = parisCalendar
+        let now = calendar.date(from: DateComponents(year: 2026, month: 5, day: 15, hour: 9)) ?? Date()
+
+        let tomorrow = QuickDatePresets.tomorrow(calendar: calendar, now: now)
+
+        let components = utcDay(of: tomorrow)
         XCTAssertEqual(components.year, 2026)
         XCTAssertEqual(components.month, 5)
-        XCTAssertEqual(components.day, 17)
-        XCTAssertEqual(components.weekday, 1) // Sunday
+        XCTAssertEqual(components.day, 16)
+        XCTAssertEqual(components.hour, 0)
+    }
+
+    // MARK: - endOfWeek
+
+    func testEndOfWeekIsNextSundayWhenWeekStartsMonday() {
+        let calendar = parisCalendar
+        // 2026-05-15 is a Friday.
+        let friday = calendar.date(from: DateComponents(year: 2026, month: 5, day: 15, hour: 12)) ?? Date()
+
+        let endOfWeek = QuickDatePresets.endOfWeek(calendar: calendar, now: friday)
+
+        let components = utcDay(of: endOfWeek)
+        XCTAssertEqual(components.day, 17, "next Sunday after Friday 2026-05-15")
+        XCTAssertEqual(components.hour, 0)
     }
 
     func testEndOfWeekReturnsTodayWhenAlreadyAtWeekend() {
-        let calendar = monFirstCalendar
-        // 2026-05-17 is the next Sunday.
-        let sunday = calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)) ?? Date()
+        let calendar = parisCalendar
+        let sunday = calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 10)) ?? Date()
 
         let endOfWeek = QuickDatePresets.endOfWeek(calendar: calendar, now: sunday)
-        let today = QuickDatePresets.today(calendar: calendar, now: sunday)
-        XCTAssertEqual(endOfWeek, today)
+        XCTAssertEqual(endOfWeek, QuickDatePresets.today(calendar: calendar, now: sunday))
     }
 
     func testEndOfWeekIsNextSaturdayWhenWeekStartsSunday() {
-        let calendar = sunFirstCalendar
-        // Pick a Thursday — 2026-05-14 in New York.
-        let thursday = calendar.date(from: DateComponents(year: 2026, month: 5, day: 14)) ?? Date()
+        let calendar = newYorkCalendar
+        let thursday = calendar.date(from: DateComponents(year: 2026, month: 5, day: 14, hour: 15)) ?? Date()
 
         let endOfWeek = QuickDatePresets.endOfWeek(calendar: calendar, now: thursday)
-        let components = calendar.dateComponents([.year, .month, .day, .weekday], from: endOfWeek)
-        // Next Saturday is 2026-05-16.
-        XCTAssertEqual(components.day, 16)
-        XCTAssertEqual(components.weekday, 7)
+
+        let components = utcDay(of: endOfWeek)
+        XCTAssertEqual(components.day, 16, "next Saturday after Thursday 2026-05-14 (NYC)")
+    }
+
+    // MARK: - normalizeForDueDate
+
+    func testNormalizeForDueDateStripsTimeAndAnchorsAtMidnightUTC() {
+        let calendar = parisCalendar
+        let picked = calendar.date(from: DateComponents(year: 2026, month: 6, day: 1, hour: 23, minute: 45)) ?? Date()
+
+        let normalised = QuickDatePresets.normalizeForDueDate(picked, calendar: calendar)
+
+        let components = utcDay(of: normalised)
+        XCTAssertEqual(components.year, 2026)
+        XCTAssertEqual(components.month, 6)
+        XCTAssertEqual(components.day, 1, "even at 23:45 local, the UTC day still matches the local day")
+        XCTAssertEqual(components.hour, 0)
     }
 }
