@@ -119,6 +119,14 @@ final class NotificationsCoordinator: NSObject {
     }
 
     private func enable() async {
+        // Bring the app forward before requesting authorization. We
+        // are an `LSUIElement = true` app (no dock icon) whose only
+        // UI is a borderless floating `NSPanel`, so the OS permission
+        // dialog can be drawn under the panel — the user clicks the
+        // toggle, sees nothing happen, the toggle sits in its
+        // "requesting…" state indefinitely. Activating the app fixes
+        // the window order so the dialog gets focus on top.
+        NSApp.activate(ignoringOtherApps: true)
         let outcome = await scheduler.requestAuthorization()
         isRequestingAuthorization = false
         switch outcome {
