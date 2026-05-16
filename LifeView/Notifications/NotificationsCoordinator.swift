@@ -254,7 +254,13 @@ final class NotificationsCoordinator: NSObject {
 
 // MARK: - UNUserNotificationCenterDelegate
 
-extension NotificationsCoordinator: UNUserNotificationCenterDelegate {
+// `@preconcurrency` on the conformance: the completion-handler
+// signature of these two delegate methods gained `@Sendable` in the
+// macOS 26 SDK. CI is on Xcode 16.2 (macOS 15.2 SDK) where the
+// requirement is still the plain `@escaping` form, which trips Swift
+// 6 strict concurrency. `@preconcurrency` here lets us satisfy
+// whichever shape the running SDK exposes.
+extension NotificationsCoordinator: @preconcurrency UNUserNotificationCenterDelegate {
     /// Decides what happens when a notification arrives while the app
     /// is in the foreground. We display a banner + play the sound so
     /// the user is not confused by a silent delivery — they have
