@@ -67,6 +67,27 @@ enum GoogleTasksEndpoints {
         updateTask(in: listID, taskID: taskID)
     }
 
+    /// `POST /lists/{listID}/tasks/{taskID}/move` — no body, optional
+    /// `parent` and `previous` query parameters (both task IDs in the
+    /// same list). When both are omitted the task is moved to the top
+    /// of the list at root level (no parent). Returns the moved task
+    /// with its updated `position`.
+    static func moveTask(in listID: String, taskID: String, parent: String?, previous: String?) -> URL {
+        let escapedList = listID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? listID
+        let escapedTask = taskID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? taskID
+        let path = "lists/\(escapedList)/tasks/\(escapedTask)/move"
+        // swiftlint:disable:next force_unwrapping
+        var components = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        var items: [URLQueryItem] = []
+        if let parent { items.append(URLQueryItem(name: "parent", value: parent)) }
+        if let previous { items.append(URLQueryItem(name: "previous", value: previous)) }
+        if !items.isEmpty {
+            components.queryItems = items
+        }
+        // swiftlint:disable:next force_unwrapping
+        return components.url!
+    }
+
     /// `POST /users/@me/lists` — body is a ``RemoteTaskListInput``.
     static func insertTaskList() -> URL {
         base.appendingPathComponent("users/@me/lists")
