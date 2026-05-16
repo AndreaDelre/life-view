@@ -1,6 +1,12 @@
 import Foundation
 import GoogleAuth
-import UserNotifications
+// `@preconcurrency`: UNNotificationRequest gained Sendable in the
+// macOS 26 SDK. The CI Xcode 16.2 / macOS 15.2 SDK still treats it
+// as non-Sendable, which breaks `await center.pendingNotificationRequests()`
+// crossing the actor boundary under Swift 6 strict concurrency.
+// The annotation suppresses the diagnostic on the older SDK without
+// affecting the newer one (where the type is already Sendable).
+@preconcurrency import UserNotifications
 
 /// Description of a task whose due-date is to be (or already is)
 /// reflected as a local notification.
