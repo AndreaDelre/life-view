@@ -70,18 +70,30 @@ actor NotificationScheduler {
         }
     }
 
-    /// Prompts the user the first time, returns whether the grant
-    /// succeeded. Idempotent — subsequent calls return the cached
-    /// decision without re-prompting.
-    @discardableResult
-    func requestAuthorization() async -> Bool {
+    /// Outcome of an authorization request — lets the caller surface
+    /// distinct UI for "user denied at the OS dialog" vs. "the system
+    /// rejected the request altogether" (typically a Debug ad-hoc
+    /// signed build hitting the
+    /// `com.apple.private.usernotifications.bundle-identifiers`
+    /// entitlement check that only signed-Developer-ID / App-Store
+    /// builds clear).
+    enum AuthorizationOutcome: Sendable {
+        case granted
+        case denied
+        case systemError(String)
+    }
+
+    /// Prompts the user the first time, returns the outcome.
+    /// Idempotent — subsequent calls return the cached decision
+    /// without re-prompting.
+    func requestAuthorization() async -> AuthorizationOutcome {
         do {
             let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
             cachedStatus = granted ? .authorized : .denied
-            return granted
+            return granted ? .granted : .denied
         } catch {
             cachedStatus = .denied
-            return false
+            return .systemError(error.localizedDescription)
         }
     }
 

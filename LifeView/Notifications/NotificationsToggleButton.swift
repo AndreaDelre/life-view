@@ -35,19 +35,46 @@ struct NotificationsToggleButton: View {
 
     private var popoverContent: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            Toggle(isOn: enabledBinding) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Notifications d’échéance")
-                        .font(Typography.titleSmall)
-                    Text("Reçois une alerte macOS quand une tâche arrive à échéance.")
+            HStack(alignment: .top, spacing: Spacing.sm) {
+                Toggle(isOn: enabledBinding) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Notifications d’échéance")
+                            .font(Typography.titleSmall)
+                        Text("Reçois une alerte macOS quand une tâche arrive à échéance.")
+                            .font(Typography.caption)
+                            .foregroundStyle(Palette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .toggleStyle(.switch)
+                .disabled(coordinator.isRequestingAuthorization)
+
+                if coordinator.isRequestingAuthorization {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            if let systemError = coordinator.lastAuthSystemError {
+                Divider()
+                VStack(alignment: .leading, spacing: Spacing.xxs) {
+                    Text("Le système a refusé la demande d’autorisation.")
+                        .font(Typography.captionEmphasised)
+                        .foregroundStyle(Palette.danger)
+                    Text(systemError)
                         .font(Typography.caption)
                         .foregroundStyle(Palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        "Sur un build de développement non distribué via Developer ID, "
+                        + "les notifications locales ne peuvent pas être autorisées par "
+                        + "macOS — c’est attendu jusqu’à la phase P7 (distribution)."
+                    )
+                    .font(Typography.caption)
+                    .foregroundStyle(Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
-            }
-            .toggleStyle(.switch)
-
-            if coordinator.isEnabled, !coordinator.isAuthorized {
+            } else if coordinator.isEnabled, !coordinator.isAuthorized {
                 Divider()
                 Text("L’autorisation système n’est pas accordée. Ouvre Réglages système › Notifications pour autoriser LifeView.")
                     .font(Typography.caption)
@@ -56,7 +83,7 @@ struct NotificationsToggleButton: View {
             }
         }
         .padding(Spacing.md)
-        .frame(width: 280)
+        .frame(width: 320)
     }
 
     /// Two-way binding routed through ``NotificationsCoordinator/setEnabled(_:)``

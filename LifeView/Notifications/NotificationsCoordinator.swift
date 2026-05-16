@@ -30,8 +30,8 @@ final class NotificationsCoordinator: NSObject {
     private let preferences: UserDefaults
 
     /// Persisted opt-in flag. Writing to it through the popover
-    /// triggers ``handleToggleChange(_:)`` which either asks for
-    /// authorization + syncs, or cancels everything pending.
+    /// triggers ``setEnabled(_:)`` which either asks for authorization
+    /// + syncs, or cancels everything pending.
     private(set) var isEnabled: Bool
 
     /// True after the OS dialog has been shown and either grant /
@@ -39,6 +39,21 @@ final class NotificationsCoordinator: NSObject {
     /// "ouvrir les Préférences Système" when the user previously
     /// refused but is now trying to opt back in.
     private(set) var isAuthorized: Bool = false
+
+    /// True while a `setEnabled(true)` call is awaiting the OS
+    /// authorization roundtrip. Drives a spinner in the popover so the
+    /// toggle doesn't appear frozen during the second or two the OS
+    /// takes to surface its dialog (and rapidly flip the toggle ON
+    /// then OFF if auth fails).
+    private(set) var isRequestingAuthorization: Bool = false
+
+    /// Set to a human-readable message when the last authorization
+    /// request failed for a **system** reason (typically: Debug
+    /// ad-hoc signed build — the OS requires a Developer ID / App
+    /// Store signed bundle to grant notification permissions).
+    /// Distinct from `isAuthorized = false` which can also mean
+    /// "user explicitly refused".
+    private(set) var lastAuthSystemError: String?
 
     /// Latest focus request from a notification tap. Set non-nil by
     /// the delegate adapter; consumers read & clear it.
@@ -78,34 +93,54 @@ final class NotificationsCoordinator: NSObject {
 
     // MARK: - Toggle
 
-    /// Called by the popover's toggle binding. Persists the new value,
-    /// and either prompts + starts syncing (on) or cancels everything
-    /// pending (off).
+    /// Called by the popover's toggle binding. For OFF we apply the
+    /// change immediately (cancelling pending notifications is local).
+    /// For ON we **defer** the state change until the OS authorization
+    /// roundtrip finishes — flipping `isEnabled = true` optimistically
+    /// then back to `false` on rejection was producing a brief
+    /// "stuck on" appearance + an orange warning chip during the
+    /// gap, which read as a freeze.
     func setEnabled(_ value: Bool) {
         guard value != isEnabled else { return }
-        isEnabled = value
-        preferences.set(value, forKey: Self.preferencesKey)
         if value {
+            // Don't mutate `isEnabled` yet — the toggle binding will
+            // re-read it after `isRequestingAuthorization` drops back
+            // to false and reflect whatever the auth outcome was.
+            guard !isRequestingAuthorization else { return }
+            isRequestingAuthorization = true
+            lastAuthSystemError = nil
             Task { await self.enable() }
         } else {
+            isEnabled = false
+            preferences.set(false, forKey: Self.preferencesKey)
+            lastAuthSystemError = nil
             Task { await self.disable() }
         }
     }
 
     private func enable() async {
-        let granted = await scheduler.requestAuthorization()
-        isAuthorized = granted
-        guard granted else {
-            // User refused at the OS dialog: revert silently. The
-            // popover will reflect the off state on its next read of
-            // `isEnabled`; no error toast because the OS already
-            // showed UI.
-            isEnabled = false
-            preferences.set(false, forKey: Self.preferencesKey)
-            return
+        let outcome = await scheduler.requestAuthorization()
+        isRequestingAuthorization = false
+        switch outcome {
+        case .granted:
+            isAuthorized = true
+            isEnabled = true
+            preferences.set(true, forKey: Self.preferencesKey)
+            beginObservingTasks()
+            await resyncFromCurrentState()
+        case .denied:
+            // User refused at the OS dialog. Leave `isEnabled` at
+            // false (the toggle stays off). The popover shows the
+            // generic "ouvre Réglages système" hint.
+            isAuthorized = false
+        case let .systemError(message):
+            // System rejected the request (e.g. Debug ad-hoc signed
+            // build). Surface a distinct error so the popover can
+            // explain WHY it isn't working — silently flipping back
+            // to OFF feels like a freeze.
+            isAuthorized = false
+            lastAuthSystemError = message
         }
-        beginObservingTasks()
-        await resyncFromCurrentState()
     }
 
     private func disable() async {
