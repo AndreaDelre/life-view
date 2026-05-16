@@ -2,6 +2,7 @@ import Core
 import Foundation
 import GoogleAuth
 import GoogleTasksClient
+import OfflineCache
 
 /// P5 write API: optimistic local mutation + serial per-account write
 /// queue + rollback on failure. Implemented as an extension in its own
@@ -81,8 +82,23 @@ extension TasksViewModel {
                         items.sort { $0.position < $1.position }
                     }
                 }
+                persistTaskUpsert(inserted, listID: listID, accountID: accountID)
             } catch {
                 guard let self else { return }
+                if Self.isTransportFailure(error) {
+                    // Offline path: keep the optimistic row, queue the
+                    // intent. The local-ID stays "pending" so the UI
+                    // keeps rendering its in-flight state.
+                    enqueuePending(
+                        .createTask(
+                            listID: listID,
+                            clientTaskID: localID,
+                            draft: PendingTaskDraft(draft: draft)
+                        ),
+                        accountID: accountID
+                    )
+                    return
+                }
                 pendingTaskIDs.remove(localID)
                 mutateTaskList(accountID: accountID, listID: listID) { items in
                     items.removeAll { $0.id == localID }
@@ -186,9 +202,17 @@ extension TasksViewModel {
                 try await queue.enqueue(for: accountID) {
                     try await client.deleteTask(in: listID, taskID: taskID)
                 }
-                // Optimistic remove already applied; nothing to do.
+                guard let self else { return }
+                persistTaskDelete(taskID: taskID, listID: listID, accountID: accountID)
             } catch {
                 guard let self else { return }
+                if Self.isTransportFailure(error) {
+                    enqueuePending(
+                        .deleteTask(listID: listID, taskID: taskID),
+                        accountID: accountID
+                    )
+                    return
+                }
                 mutateTaskList(accountID: accountID, listID: listID) { items in
                     let insertAt = min(beforeIndex, items.count)
                     items.insert(beforeTask, at: insertAt)
@@ -272,31 +296,50 @@ extension TasksViewModel {
         }
 
         pendingTaskIDs.insert(movedTaskID)
+        runMoveTaskNetworkCall(
+            accountID: accountID,
+            listID: listID,
+            movedTaskID: movedTaskID,
+            previousID: previousID,
+            beforeOrder: beforeOrder
+        )
+    }
+
+    /// Network half of ``moveTask``. Split out so the parent stays under
+    /// the SwiftLint function-body budget — every captured value is
+    /// already a local immutable, so the split is purely syntactic.
+    private func runMoveTaskNetworkCall(
+        accountID: AccountID,
+        listID: String,
+        movedTaskID: String,
+        previousID: String?,
+        beforeOrder: [TaskItem]
+    ) {
         let client = sessions.client(for: accountID)
         let queue = writeQueue
         let capturedPrevious = previousID
         Task { @MainActor [weak self] in
             do {
                 let moved = try await queue.enqueue(for: accountID) {
-                    try await client.moveTask(
-                        in: listID,
-                        taskID: movedTaskID,
-                        previous: capturedPrevious
-                    )
+                    try await client.moveTask(in: listID, taskID: movedTaskID, previous: capturedPrevious)
                 }
                 guard let self else { return }
                 pendingTaskIDs.remove(movedTaskID)
-                // Patch the moved row in-place with the server's
-                // canonical representation (its `position` is now
-                // up-to-date) without re-sorting: the user-driven
-                // array order is the source of truth here.
                 mutateTaskList(accountID: accountID, listID: listID) { items in
                     if let idx = items.firstIndex(where: { $0.id == movedTaskID }) {
                         items[idx] = moved
                     }
                 }
+                persistTaskUpsert(moved, listID: listID, accountID: accountID)
             } catch {
                 guard let self else { return }
+                if Self.isTransportFailure(error) {
+                    enqueuePending(
+                        .moveTask(listID: listID, taskID: movedTaskID, previousTaskID: capturedPrevious),
+                        accountID: accountID
+                    )
+                    return
+                }
                 pendingTaskIDs.remove(movedTaskID)
                 mutateTaskList(accountID: accountID, listID: listID) { items in
                     items = beforeOrder
@@ -306,128 +349,9 @@ extension TasksViewModel {
         }
     }
 
-    // MARK: - Lists
-
-    /// Creates a new task list under the currently-selected account.
-    /// Single mode only — aggregated mode does not have a target
-    /// account when triggered from the panel header. Returns `false`
-    /// when out of single mode or `title` is empty after trimming.
-    @discardableResult
-    func createList(title: String) -> Bool {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        guard case let .single(accountID) = selection else { return false }
-        guard case .singleLoaded = state else { return false }
-
-        // Sentinel ID prefix: views key off the "local-list-" prefix to
-        // disable rename/delete/select on a list whose server ID is not
-        // yet known.
-        let localID = "local-list-" + UUID().uuidString
-        let optimistic = TaskList(id: localID, title: trimmed, updatedAt: Date())
-
-        mutateAccountLists(accountID: accountID) { lists in
-            lists.append(optimistic)
-        }
-
-        let client = sessions.client(for: accountID)
-        let queue = writeQueue
-        Task { @MainActor [weak self] in
-            do {
-                let inserted = try await queue.enqueue(for: accountID) {
-                    try await client.insertTaskList(title: trimmed)
-                }
-                guard let self else { return }
-                mutateAccountLists(accountID: accountID) { lists in
-                    if let idx = lists.firstIndex(where: { $0.id == localID }) {
-                        lists[idx] = inserted
-                    }
-                }
-            } catch {
-                guard let self else { return }
-                mutateAccountLists(accountID: accountID) { lists in
-                    lists.removeAll { $0.id == localID }
-                }
-                lastError = Self.messageFor(error)
-            }
-        }
-        return true
-    }
-
-    /// Renames a list. No-op on a pending local insert (the server has
-    /// not assigned an ID yet) or when the trimmed title is empty /
-    /// unchanged.
-    func renameList(listID: String, to newTitle: String, account accountID: AccountID) {
-        guard !listID.hasPrefix("local-list-") else { return }
-        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        var beforeList: TaskList?
-        mutateAccountLists(accountID: accountID) { lists in
-            guard let idx = lists.firstIndex(where: { $0.id == listID }) else { return }
-            beforeList = lists[idx]
-            lists[idx].title = trimmed
-        }
-        guard let beforeList, beforeList.title != trimmed else { return }
-
-        let client = sessions.client(for: accountID)
-        let queue = writeQueue
-        Task { @MainActor [weak self] in
-            do {
-                let renamed = try await queue.enqueue(for: accountID) {
-                    try await client.renameTaskList(listID: listID, title: trimmed)
-                }
-                guard let self else { return }
-                mutateAccountLists(accountID: accountID) { lists in
-                    if let idx = lists.firstIndex(where: { $0.id == listID }) {
-                        lists[idx] = renamed
-                    }
-                }
-            } catch {
-                guard let self else { return }
-                mutateAccountLists(accountID: accountID) { lists in
-                    if let idx = lists.firstIndex(where: { $0.id == listID }) {
-                        lists[idx] = beforeList
-                    }
-                }
-                lastError = Self.messageFor(error)
-            }
-        }
-    }
-
-    /// Deletes a list (and cascades every task it contains). On
-    /// failure the list is restored to its original index — but note
-    /// that the *tasks* inside it stay gone locally until the next
-    /// reload re-fetches them from Google.
-    func deleteList(listID: String, account accountID: AccountID) {
-        guard !listID.hasPrefix("local-list-") else { return }
-
-        var beforeList: TaskList?
-        var beforeIndex: Int?
-        mutateAccountLists(accountID: accountID) { lists in
-            guard let idx = lists.firstIndex(where: { $0.id == listID }) else { return }
-            beforeList = lists[idx]
-            beforeIndex = idx
-            lists.remove(at: idx)
-        }
-        guard let beforeList, let beforeIndex else { return }
-
-        let client = sessions.client(for: accountID)
-        let queue = writeQueue
-        Task { @MainActor [weak self] in
-            do {
-                try await queue.enqueue(for: accountID) {
-                    try await client.deleteTaskList(listID: listID)
-                }
-            } catch {
-                guard let self else { return }
-                mutateAccountLists(accountID: accountID) { lists in
-                    let insertAt = min(beforeIndex, lists.count)
-                    lists.insert(beforeList, at: insertAt)
-                }
-                lastError = Self.messageFor(error)
-            }
-        }
-    }
+    // `createList`, `renameList`, `deleteList` moved to
+    // `TasksViewModel+ListMutations.swift` to stay under the SwiftLint
+    // file-length budget.
 
     // MARK: - Mutations — internals
 
@@ -459,8 +383,18 @@ extension TasksViewModel {
                         items.sort { $0.position < $1.position }
                     }
                 }
+                persistTaskUpsert(updated, listID: listID, accountID: accountID)
             } catch {
                 guard let self else { return }
+                if Self.isTransportFailure(error) {
+                    // Idempotent patch: keep the optimistic UI, queue
+                    // the intent. `pendingTaskIDs` stays set so the
+                    // row continues to render as pending until the
+                    // drain rewrites it after reconnect.
+                    let payload = Self.payload(for: patch, listID: listID, taskID: taskID)
+                    enqueuePending(payload, accountID: accountID)
+                    return
+                }
                 pendingTaskIDs.remove(taskID)
                 mutateTaskList(accountID: accountID, listID: listID) { items in
                     if let idx = items.firstIndex(where: { $0.id == taskID }) {

@@ -3,6 +3,7 @@ import Foundation
 import GoogleAuth
 import GoogleTasksClient
 import Observation
+import OfflineCache
 
 /// Drives the tasks corner of the panel for both display modes.
 ///
@@ -90,6 +91,15 @@ final class TasksViewModel {
     let accountLookup: @MainActor (AccountID) -> Account?
     private let preferences: UserDefaults
     let writeQueue: SerialOperationQueue<AccountID>
+    /// Disk cache + persistent write queue. Optional so the test
+    /// fixture (which doesn't need persistence) can omit it without
+    /// dragging a database into every unit test.
+    let cache: OfflineCacheStore?
+    /// Sync coordinator (network monitor + drainer). Optional for the
+    /// same reason as `cache`. The view-model calls
+    /// ``OfflineSyncCoordinator/requestDrain(accountID:)`` after a
+    /// successful mutation so any backlog flushes opportunistically.
+    weak var syncCoordinator: OfflineSyncCoordinator?
 
     /// Generation counter incremented on every selection change and on
     /// every manual refresh. Async work checks this against the value it
@@ -108,12 +118,16 @@ final class TasksViewModel {
         sessions: AccountSessionRegistry,
         accountLookup: @escaping @MainActor (AccountID) -> Account?,
         preferences: UserDefaults = .standard,
-        writeQueue: SerialOperationQueue<AccountID> = SerialOperationQueue<AccountID>()
+        writeQueue: SerialOperationQueue<AccountID> = SerialOperationQueue<AccountID>(),
+        cache: OfflineCacheStore? = nil,
+        syncCoordinator: OfflineSyncCoordinator? = nil
     ) {
         self.sessions = sessions
         self.accountLookup = accountLookup
         self.preferences = preferences
         self.writeQueue = writeQueue
+        self.cache = cache
+        self.syncCoordinator = syncCoordinator
         showsCompleted = preferences.bool(forKey: Self.showsCompletedKey)
     }
 
@@ -129,7 +143,45 @@ final class TasksViewModel {
         case .none:
             await reset()
         case .single, .all:
+            // Hydrate from disk synchronously so the user sees data
+            // immediately while the network sync runs in background.
+            hydrateFromCache(for: next)
             await reload(forceReload: false)
+        }
+    }
+
+    /// Synchronously paints `state` from the disk cache for `selection`.
+    /// No-op when the cache is absent or empty. Runs *before* every
+    /// network reload so the first frame the user sees is never an
+    /// empty spinner — provided the previous launch persisted data.
+    func hydrateFromCache(for selection: Selection) {
+        guard let cache else { return }
+        switch selection {
+        case .none:
+            return
+        case let .single(accountID):
+            guard let account = accountLookup(accountID),
+                  let snapshot = try? cache.snapshot(accountID: accountID),
+                  !snapshot.lists.isEmpty else { return }
+            let preferredID = snapshot.lists.first?.id
+            state = .singleLoaded(SinglePayload(
+                account: account,
+                lists: snapshot.lists,
+                selectedListID: preferredID,
+                tasksState: .loaded(preferredID.map(snapshot.tasks) ?? [])
+            ))
+        case let .all(ids):
+            let sections: [AccountSection] = ids.compactMap { id in
+                guard let account = accountLookup(id),
+                      let snapshot = try? cache.snapshot(accountID: id),
+                      !snapshot.lists.isEmpty else { return nil }
+                let slices = snapshot.lists.map { list in
+                    ListSlice(list: list, tasksState: .loaded(snapshot.tasks(for: list.id)))
+                }
+                return AccountSection(account: account, slices: slices)
+            }
+            guard !sections.isEmpty else { return }
+            state = .allLoaded(sections)
         }
     }
 

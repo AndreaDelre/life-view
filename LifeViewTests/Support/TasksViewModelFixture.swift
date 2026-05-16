@@ -3,6 +3,7 @@ import Foundation
 import GoogleAuth
 import GoogleTasksClient
 @testable import LifeView
+import OfflineCache
 
 /// Helpers for spinning up a fully-wired ``TasksViewModel`` against
 /// stub HTTP — for the optimistic / rollback tests.
@@ -30,7 +31,8 @@ enum TasksViewModelFixture {
     /// vm.setSelection(.single(...))` to drive the initial load.
     static func makeViewModel(
         http: StubTasksHTTPClient,
-        queue: SerialOperationQueue<AccountID> = SerialOperationQueue<AccountID>()
+        queue: SerialOperationQueue<AccountID> = SerialOperationQueue<AccountID>(),
+        cache: OfflineCacheStore? = nil
     ) -> TasksViewModel {
         let client = GoogleTasksClient(
             authorizing: StubTasksAuthorizing(),
@@ -42,7 +44,8 @@ enum TasksViewModelFixture {
             sessions: registry,
             accountLookup: { id in id == accountID ? account : nil },
             preferences: makeIsolatedDefaults(),
-            writeQueue: queue
+            writeQueue: queue,
+            cache: cache
         )
     }
 

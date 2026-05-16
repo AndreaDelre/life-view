@@ -70,6 +70,7 @@ extension TasksViewModel {
         let client = sessions.client(for: accountID)
         do {
             let lists = try await client.fetchTaskLists(forceReload: forceReload)
+            persistLists(lists, accountID: accountID)
             guard self.generation == generation else { return }
 
             guard !lists.isEmpty else {
@@ -134,6 +135,13 @@ extension TasksViewModel {
                 showCompleted: showsCompleted,
                 forceReload: forceReload
             )
+            // Persist the just-fetched view so the next launch can
+            // hydrate without a network round-trip. The
+            // `showsCompleted`-driven subset is acceptable: the next
+            // sync rewrites the cache anyway, and a missing completed
+            // task in the cold-start cache is preferable to a stale
+            // "still incomplete" row that the user already ticked off.
+            persistTasks(tasks, listID: listID, accountID: accountID)
             guard self.generation == generation else { return }
             guard case var .singleLoaded(payload) = state, payload.selectedListID == listID else { return }
             payload.tasksState = .loaded(tasks)
@@ -227,6 +235,20 @@ extension TasksViewModel {
 
         guard self.generation == generation else { return }
         state = .allLoaded(sections)
+
+        // Persist the aggregated payload — best-effort, fire-and-forget.
+        // Done after assigning state so the UI never waits on disk I/O.
+        for section in sections {
+            let accountID = section.account.id
+            var loadedLists: [TaskList] = []
+            for slice in section.slices {
+                loadedLists.append(slice.list)
+                if case let .loaded(tasks) = slice.tasksState {
+                    persistTasks(tasks, listID: slice.list.id, accountID: accountID)
+                }
+            }
+            persistLists(loadedLists, accountID: accountID)
+        }
     }
 
     /// Fetches lists + tasks for one account. Errors on individual lists
