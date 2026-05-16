@@ -41,7 +41,20 @@ struct GoogleTasksWriteExecutor: PendingWriteExecutor {
     private func replay(_ payload: PendingWritePayload, on client: GoogleTasksClient) async throws {
         switch payload {
         case let .createTask(listID, _, draft):
-            _ = try await client.insertTask(in: listID, draft: draft.asDraft)
+            // The live `insertTask` endpoint always creates the task in
+            // `needsAction`. If the user toggled the task to
+            // `.completed` while still offline, the collapse logic
+            // stamped `draft.status = .completed` so the replay can
+            // chain a status update right after the insert. Anything
+            // other than `.completed` is left as-is (the server default).
+            let inserted = try await client.insertTask(in: listID, draft: draft.asDraft)
+            if let status = draft.status, status == .completed {
+                _ = try await client.updateTask(
+                    in: listID,
+                    taskID: inserted.id,
+                    patch: TaskPatch(status: .set(.completed))
+                )
+            }
         case let .updateTask(listID, taskID, patch):
             _ = try await client.updateTask(in: listID, taskID: taskID, patch: patch.asPatch)
         case let .completeTask(listID, taskID, isCompleted):

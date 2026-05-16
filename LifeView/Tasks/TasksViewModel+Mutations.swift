@@ -87,9 +87,14 @@ extension TasksViewModel {
                 guard let self else { return }
                 if Self.isTransportFailure(error) {
                     // Offline path: keep the optimistic row, queue the
-                    // intent. The local-ID stays "pending" so the UI
-                    // keeps rendering its in-flight state.
-                    enqueuePending(
+                    // intent. We clear the row's "pending" flag so the
+                    // user can interact with it (toggle / edit /
+                    // delete) — those operations collapse into the
+                    // queued draft rather than stacking new ops behind
+                    // it. The persisted write is awaited so any
+                    // immediately-following collapse can find it.
+                    pendingTaskIDs.remove(localID)
+                    await enqueuePendingAwait(
                         .createTask(
                             listID: listID,
                             clientTaskID: localID,
@@ -118,11 +123,6 @@ extension TasksViewModel {
         in listID: String,
         account accountID: AccountID
     ) {
-        // Pending local inserts can't be toggled until the server has
-        // assigned them a real ID — keep the UI for that operation
-        // simple by silently ignoring.
-        guard !taskID.hasPrefix("local-") else { return }
-
         var beforeTask: TaskItem?
         let hideOnComplete = !showsCompleted
         mutateTaskList(accountID: accountID, listID: listID) { items in
@@ -135,8 +135,22 @@ extension TasksViewModel {
                 items.remove(at: idx)
             }
         }
-        guard let beforeTask else { return }
+        // Pending local inserts (server ID not yet assigned) collapse
+        // into the queued `.createTask` draft instead of enqueuing a
+        // separate `.completeTask` behind it. No network call — the
+        // drainer will replay the create with the right final status.
+        if taskID.hasPrefix("local-") {
+            Task { [weak self] in
+                await self?.collapseCreateStatus(
+                    localID: taskID,
+                    isCompleted: isCompleted,
+                    accountID: accountID
+                )
+            }
+            return
+        }
 
+        guard let beforeTask else { return }
         pendingTaskIDs.insert(taskID)
         enqueueTaskPatch(
             patch: TaskPatch(status: .set(isCompleted ? .completed : .needsAction)),
@@ -155,7 +169,6 @@ extension TasksViewModel {
         in listID: String,
         account accountID: AccountID
     ) {
-        guard !taskID.hasPrefix("local-") else { return }
         let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -170,6 +183,21 @@ extension TasksViewModel {
         }
         guard didChange, let beforeTask else { return }
 
+        // Pending local inserts collapse the new title into the queued
+        // `.createTask` draft. Independent of any concurrent
+        // `collapseCreateStatus` — the cache mutation only touches
+        // `draft.title` so a status set earlier survives.
+        if taskID.hasPrefix("local-") {
+            Task { [weak self] in
+                await self?.collapseCreateTitle(
+                    localID: taskID,
+                    newTitle: trimmed,
+                    accountID: accountID
+                )
+            }
+            return
+        }
+
         pendingTaskIDs.insert(taskID)
         enqueueTaskPatch(
             patch: TaskPatch(title: .set(trimmed)),
@@ -183,8 +211,6 @@ extension TasksViewModel {
     /// Deletes a task. The row vanishes immediately; on failure it
     /// reappears at its original position and ``lastError`` is set.
     func deleteTask(taskID: String, in listID: String, account accountID: AccountID) {
-        guard !taskID.hasPrefix("local-") else { return }
-
         var beforeTask: TaskItem?
         var beforeIndex: Int?
         mutateTaskList(accountID: accountID, listID: listID) { items in
@@ -194,6 +220,18 @@ extension TasksViewModel {
             items.remove(at: idx)
         }
         guard let beforeTask, let beforeIndex else { return }
+
+        // Pending local inserts: the row has never existed server-side,
+        // so the delete is just "drop the queued create + take the
+        // local row out of the list". No rollback path — the user's
+        // intent is the final state, period.
+        if taskID.hasPrefix("local-") {
+            pendingTaskIDs.remove(taskID)
+            Task { [weak self] in
+                await self?.collapseCreateDelete(localID: taskID, accountID: accountID)
+            }
+            return
+        }
 
         let client = sessions.client(for: accountID)
         let queue = writeQueue

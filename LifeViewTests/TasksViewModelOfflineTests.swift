@@ -91,6 +91,149 @@ final class TasksViewModelOfflineTests: XCTestCase {
         XCTAssertEqual(tasksInState(viewModel.state).count, 0)
     }
 
+    // MARK: - Collapse: offline edits on a not-yet-flushed local task
+
+    /// Create offline → toggle: the queue must end up with **one**
+    /// `.createTask` whose draft carries the final status, not a pair
+    /// (`.createTask` + `.completeTask`).
+    func testCollapse_createOfflineThenToggle_mergesIntoCreateDraft() async throws {
+        let cache = try OfflineCacheStore.inMemory()
+        let http = StubTasksHTTPClient(
+            TasksViewModelFixture.makeInitialFetchOutcomes() + [
+                .success(statusCode: 500, body: Data())
+            ]
+        )
+        let viewModel = TasksViewModelFixture.makeViewModel(http: http, cache: cache)
+        await viewModel.setSelection(.single(accountID))
+        XCTAssertTrue(viewModel.createTask(title: "Hors-ligne"))
+        await waitForPendingWrite(cache: cache, accountID: accountID)
+
+        let localID = try XCTUnwrap(firstLocalTaskID(in: viewModel.state))
+        viewModel.setCompletion(true, for: localID, in: listID, account: accountID)
+        await waitForCollapse(cache: cache, accountID: accountID) { writes in
+            guard case let .createTask(_, _, draft)? = writes.first?.payload else { return false }
+            return draft.status == .completed
+        }
+
+        let pending = try await cache.pendingWrites(accountID: accountID)
+        XCTAssertEqual(pending.count, 1, "collapse must not stack a separate completeTask")
+        if case let .createTask(_, _, draft) = pending.first?.payload {
+            XCTAssertEqual(draft.title, "Hors-ligne")
+            XCTAssertEqual(draft.status, .completed)
+        } else {
+            XCTFail("expected .createTask payload, got \(String(describing: pending.first?.payload))")
+        }
+    }
+
+    /// Create offline → rename: queue stays at one `.createTask` whose
+    /// draft.title reflects the rename.
+    func testCollapse_createOfflineThenRename_mergesIntoCreateDraft() async throws {
+        let cache = try OfflineCacheStore.inMemory()
+        let http = StubTasksHTTPClient(
+            TasksViewModelFixture.makeInitialFetchOutcomes() + [
+                .success(statusCode: 500, body: Data())
+            ]
+        )
+        let viewModel = TasksViewModelFixture.makeViewModel(http: http, cache: cache)
+        await viewModel.setSelection(.single(accountID))
+        XCTAssertTrue(viewModel.createTask(title: "Brouillon"))
+        await waitForPendingWrite(cache: cache, accountID: accountID)
+
+        let localID = try XCTUnwrap(firstLocalTaskID(in: viewModel.state))
+        viewModel.editTaskTitle("Titre final", for: localID, in: listID, account: accountID)
+        await waitForCollapse(cache: cache, accountID: accountID) { writes in
+            guard case let .createTask(_, _, draft)? = writes.first?.payload else { return false }
+            return draft.title == "Titre final"
+        }
+
+        let pending = try await cache.pendingWrites(accountID: accountID)
+        XCTAssertEqual(pending.count, 1)
+        if case let .createTask(_, _, draft) = pending.first?.payload {
+            XCTAssertEqual(draft.title, "Titre final")
+        } else {
+            XCTFail("expected .createTask payload")
+        }
+    }
+
+    /// Edit title + toggle on the same local task must preserve **both**
+    /// mutations in the queued draft — the merge is field-scoped.
+    func testCollapse_renameThenToggle_preservesBothFields() async throws {
+        let cache = try OfflineCacheStore.inMemory()
+        let http = StubTasksHTTPClient(
+            TasksViewModelFixture.makeInitialFetchOutcomes() + [
+                .success(statusCode: 500, body: Data())
+            ]
+        )
+        let viewModel = TasksViewModelFixture.makeViewModel(http: http, cache: cache)
+        await viewModel.setSelection(.single(accountID))
+        XCTAssertTrue(viewModel.createTask(title: "Initial"))
+        await waitForPendingWrite(cache: cache, accountID: accountID)
+
+        let localID = try XCTUnwrap(firstLocalTaskID(in: viewModel.state))
+        viewModel.editTaskTitle("Renommé", for: localID, in: listID, account: accountID)
+        await waitForCollapse(cache: cache, accountID: accountID) { writes in
+            guard case let .createTask(_, _, draft)? = writes.first?.payload else { return false }
+            return draft.title == "Renommé"
+        }
+        viewModel.setCompletion(true, for: localID, in: listID, account: accountID)
+        await waitForCollapse(cache: cache, accountID: accountID) { writes in
+            guard case let .createTask(_, _, draft)? = writes.first?.payload else { return false }
+            return draft.status == .completed
+        }
+
+        let pending = try await cache.pendingWrites(accountID: accountID)
+        XCTAssertEqual(pending.count, 1)
+        if case let .createTask(_, _, draft) = pending.first?.payload {
+            XCTAssertEqual(draft.title, "Renommé")
+            XCTAssertEqual(draft.status, .completed)
+        } else {
+            XCTFail("expected .createTask payload")
+        }
+    }
+
+    /// Create offline → delete: the queue ends up empty (no orphan
+    /// `.createTask` waiting to resurrect the row) and the local row is
+    /// gone.
+    func testCollapse_createOfflineThenDelete_removesQueueEntry() async throws {
+        let cache = try OfflineCacheStore.inMemory()
+        let http = StubTasksHTTPClient(
+            TasksViewModelFixture.makeInitialFetchOutcomes() + [
+                .success(statusCode: 500, body: Data())
+            ]
+        )
+        let viewModel = TasksViewModelFixture.makeViewModel(http: http, cache: cache)
+        await viewModel.setSelection(.single(accountID))
+        XCTAssertTrue(viewModel.createTask(title: "À supprimer"))
+        await waitForPendingWrite(cache: cache, accountID: accountID)
+
+        let localID = try XCTUnwrap(firstLocalTaskID(in: viewModel.state))
+        viewModel.deleteTask(taskID: localID, in: listID, account: accountID)
+        await waitForQueueEmpty(cache: cache, accountID: accountID)
+
+        let pending = try await cache.pendingWrites(accountID: accountID)
+        XCTAssertTrue(pending.isEmpty)
+        XCTAssertEqual(tasksInState(viewModel.state).count, 0)
+    }
+
+    /// Once the optimistic create has failed offline, the row must
+    /// stop reporting as "pending" so the UI lets the user toggle /
+    /// rename / delete it.
+    func testCreateOffline_clearsPendingFlagAfterEnqueue() async throws {
+        let cache = try OfflineCacheStore.inMemory()
+        let http = StubTasksHTTPClient(
+            TasksViewModelFixture.makeInitialFetchOutcomes() + [
+                .success(statusCode: 500, body: Data())
+            ]
+        )
+        let viewModel = TasksViewModelFixture.makeViewModel(http: http, cache: cache)
+        await viewModel.setSelection(.single(accountID))
+        XCTAssertTrue(viewModel.createTask(title: "Tâche libre"))
+        await waitForPendingWrite(cache: cache, accountID: accountID)
+
+        let localID = try XCTUnwrap(firstLocalTaskID(in: viewModel.state))
+        XCTAssertFalse(viewModel.isPending(taskID: localID), "offline create must release pending flag")
+    }
+
     func testCompletionTransportFailure_enqueuesCompleteTaskVariant() async throws {
         let cache = try OfflineCacheStore.inMemory()
         let http = StubTasksHTTPClient(
@@ -147,4 +290,48 @@ private func waitForPendingWrite(
         }
         try? await Task.sleep(nanoseconds: 5_000_000)
     }
+}
+
+/// Polls the persistent cache until `predicate(writes)` returns `true`
+/// or `timeout` elapses. Used by the collapse tests to wait until a
+/// muted `.createTask` payload is observable.
+@MainActor
+private func waitForCollapse(
+    cache: OfflineCacheStore,
+    accountID: AccountID,
+    timeout: TimeInterval = 1.0,
+    where predicate: ([PendingWrite]) -> Bool
+) async {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if let writes = try? await cache.pendingWrites(accountID: accountID), predicate(writes) {
+            return
+        }
+        try? await Task.sleep(nanoseconds: 5_000_000)
+    }
+}
+
+/// Polls until the queue is empty (used by the create-then-delete
+/// collapse test).
+@MainActor
+private func waitForQueueEmpty(
+    cache: OfflineCacheStore,
+    accountID: AccountID,
+    timeout: TimeInterval = 1.0
+) async {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if let writes = try? await cache.pendingWrites(accountID: accountID), writes.isEmpty {
+            return
+        }
+        try? await Task.sleep(nanoseconds: 5_000_000)
+    }
+}
+
+/// Extracts the first `local-…` task ID from a single-mode state. The
+/// optimistic `createTask` inserts at index 0, so the assertion is
+/// stable.
+@MainActor
+private func firstLocalTaskID(in state: TasksViewModel.State) -> String? {
+    tasksInState(state).first(where: { $0.id.hasPrefix("local-") })?.id
 }

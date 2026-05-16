@@ -101,6 +101,81 @@ extension TasksViewModel {
         }
     }
 
+    /// Awaitable variant of ``enqueuePending``. Used by ``createTask``'s
+    /// offline branch so a subsequent toggle/rename/delete on the local
+    /// row can be sure to find the queued entry when it walks the queue
+    /// to collapse it. Returns silently when the cache is absent.
+    func enqueuePendingAwait(_ payload: PendingWritePayload, accountID: AccountID) async {
+        guard let cache else { return }
+        _ = try? await cache.enqueueWrite(accountID: accountID, payload: payload)
+        await syncCoordinator?.requestDrain(accountID: accountID)
+    }
+
+    // MARK: - Collapse helpers (offline local-ID mutations)
+
+    /// Mutes the queued `.createTask` payload for `localID` so the user's
+    /// toggle is folded into the eventual server insert. No-op when no
+    /// queued entry is found (drainer already flushed, or no cache).
+    /// Returns `true` when the collapse happened.
+    @discardableResult
+    func collapseCreateStatus(
+        localID: String,
+        isCompleted: Bool,
+        accountID: AccountID
+    ) async -> Bool {
+        guard let cache else { return false }
+        guard let entry = try? await cache.findCreateTask(
+            accountID: accountID,
+            clientTaskID: localID
+        ) else { return false }
+        let nextStatus: TaskStatus = isCompleted ? .completed : .needsAction
+        _ = try? await cache.mutatePendingWrite(id: entry.id) { payload in
+            guard case var .createTask(listID, clientID, draft) = payload else { return payload }
+            draft.status = nextStatus
+            return .createTask(listID: listID, clientTaskID: clientID, draft: draft)
+        }
+        return true
+    }
+
+    /// Mutes the queued `.createTask` payload's `title` for `localID`.
+    /// Same pattern as ``collapseCreateStatus``.
+    @discardableResult
+    func collapseCreateTitle(
+        localID: String,
+        newTitle: String,
+        accountID: AccountID
+    ) async -> Bool {
+        guard let cache else { return false }
+        guard let entry = try? await cache.findCreateTask(
+            accountID: accountID,
+            clientTaskID: localID
+        ) else { return false }
+        _ = try? await cache.mutatePendingWrite(id: entry.id) { payload in
+            guard case var .createTask(listID, clientID, draft) = payload else { return payload }
+            draft.title = newTitle
+            return .createTask(listID: listID, clientTaskID: clientID, draft: draft)
+        }
+        return true
+    }
+
+    /// Drops the queued `.createTask` entry for `localID`. The local
+    /// row vanishes synchronously elsewhere; the queue removal here
+    /// ensures the drainer doesn't resurrect the task on reconnect.
+    /// Returns `true` when an entry was removed.
+    @discardableResult
+    func collapseCreateDelete(
+        localID: String,
+        accountID: AccountID
+    ) async -> Bool {
+        guard let cache else { return false }
+        guard let entry = try? await cache.findCreateTask(
+            accountID: accountID,
+            clientTaskID: localID
+        ) else { return false }
+        try? await cache.removeWrite(id: entry.id)
+        return true
+    }
+
     // MARK: - Patch → payload mapping
 
     /// Picks the most specific ``PendingWritePayload`` variant for a
