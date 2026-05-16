@@ -8,6 +8,11 @@ import XCTest
 /// for the server's representation on success, and roll back to the
 /// pre-mutation state on failure (with a localised toast on
 /// ``TasksViewModel/lastError``).
+///
+/// Rollback tests use a **400 Bad Request** to model a permanent
+/// failure: P6.6 added an offline-aware path that classifies transport
+/// errors and 5xx as "transient, queue it" rather than "roll back".
+/// 400 stays the canonical "rollback + surface toast" failure shape.
 @MainActor
 final class TasksViewModelMutationsTests: XCTestCase {
     // MARK: - createTask
@@ -54,7 +59,7 @@ final class TasksViewModelMutationsTests: XCTestCase {
     func testCreateTaskFailureRollsBackAndSurfacesError() async {
         let http = StubTasksHTTPClient(
             TasksViewModelFixture.makeInitialFetchOutcomes() + [
-                .success(statusCode: 500, body: Data())
+                .success(statusCode: 400, body: Data())
             ]
         )
         let viewModel = TasksViewModelFixture.makeViewModel(http: http)
@@ -94,7 +99,7 @@ final class TasksViewModelMutationsTests: XCTestCase {
             TasksViewModelFixture.makeInitialFetchOutcomes(tasks: [
                 (id: "t1", title: "Acheter du pain", status: "needsAction", position: "00000000000000000001")
             ]) + [
-                .success(statusCode: 500, body: Data())
+                .success(statusCode: 400, body: Data())
             ]
         )
         let viewModel = TasksViewModelFixture.makeViewModel(http: http)
@@ -124,7 +129,7 @@ final class TasksViewModelMutationsTests: XCTestCase {
             TasksViewModelFixture.makeInitialFetchOutcomes(tasks: [
                 (id: "t1", title: "Avant", status: "needsAction", position: "00000000000000000001")
             ]) + [
-                .success(statusCode: 500, body: Data())
+                .success(statusCode: 400, body: Data())
             ]
         )
         let viewModel = TasksViewModelFixture.makeViewModel(http: http)
@@ -173,7 +178,7 @@ final class TasksViewModelMutationsTests: XCTestCase {
                 (id: "t2", title: "Second", status: "needsAction", position: "00000000000000000002"),
                 (id: "t3", title: "Third", status: "needsAction", position: "00000000000000000003")
             ]) + [
-                .success(statusCode: 500, body: Data())
+                .success(statusCode: 400, body: Data())
             ]
         )
         let viewModel = TasksViewModelFixture.makeViewModel(http: http)
@@ -312,7 +317,7 @@ final class TasksViewModelMutationsTests: XCTestCase {
                 (id: "t2", title: "B", status: "needsAction", position: "00000000000000000002"),
                 (id: "t3", title: "C", status: "needsAction", position: "00000000000000000003")
             ]) + [
-                .success(statusCode: 500, body: Data())
+                .success(statusCode: 400, body: Data())
             ]
         )
         let viewModel = TasksViewModelFixture.makeViewModel(http: http)
