@@ -9,6 +9,7 @@ struct RemoteTask: Decodable {
     let status: String?
     let due: Date?
     let position: String?
+    let parent: String?
 
     /// Maps to the domain ``Core/TaskItem``. Returns `nil` if a required
     /// field is missing — Google Tasks occasionally returns tombstone
@@ -28,7 +29,8 @@ struct RemoteTask: Decodable {
             notes: notes,
             status: mappedStatus,
             due: due,
-            position: position
+            position: position,
+            parent: parent
         )
     }
 }

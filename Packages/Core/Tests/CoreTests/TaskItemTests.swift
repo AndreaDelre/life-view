@@ -7,7 +7,17 @@ final class TaskItemTests: XCTestCase {
 
         XCTAssertNil(item.notes)
         XCTAssertNil(item.due)
+        XCTAssertNil(item.parent)
         XCTAssertEqual(item.status, .needsAction)
+    }
+
+    func testParentDistinguishesSubtaskFromTopLevel() {
+        let topLevel = TaskItem(id: "p1", title: "Parent", status: .needsAction, position: "p")
+        let subtask = TaskItem(id: "c1", title: "Child", status: .needsAction, position: "p", parent: "p1")
+
+        XCTAssertNil(topLevel.parent)
+        XCTAssertEqual(subtask.parent, "p1")
+        XCTAssertNotEqual(topLevel, subtask)
     }
 
     func testEquatabilityComparesAllFields() {
