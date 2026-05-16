@@ -58,24 +58,41 @@ final class SerialOperationQueueTests: XCTestCase {
         XCTAssertEqual(log, ["a-start", "a-end", "b"], "second op must wait for first to finish")
     }
 
-    func testKeysAreIndependent() async throws {
-        // Two long ops on the same key would serialise; on different
-        // keys they should overlap. We assert overlap by checking the
-        // wall-clock time is closer to one op duration than two.
+    func testKeysAreIndependent() async {
+        // If different-key ops were serialised, the second op's body
+        // would never run while the first holds the chain. Both ops
+        // here wait on a two-party barrier — they can only complete
+        // if scheduled concurrently. Race against a watchdog timeout
+        // so a regression surfaces as a clean assertion failure
+        // instead of a hung test runner.
+        //
+        // Avoids the earlier wall-clock comparison which flaked on
+        // slower CI runners where scheduling overhead pushed
+        // "parallel" elapsed past the threshold.
         let queue = SerialOperationQueue<String>()
-        let opDuration: UInt64 = 100_000_000 // 100ms
+        let barrier = TwoPartyBarrier()
 
-        let start = Date()
-        async let opA = queue.enqueue(for: "A") {
-            try? await Task.sleep(nanoseconds: opDuration)
+        let completed = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                do {
+                    async let aDone: Void = queue.enqueue(for: "A") { await barrier.arriveAndWait() }
+                    async let bDone: Void = queue.enqueue(for: "B") { await barrier.arriveAndWait() }
+                    _ = try await (aDone, bDone)
+                    return true
+                } catch {
+                    return false
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
         }
-        async let opB = queue.enqueue(for: "B") {
-            try? await Task.sleep(nanoseconds: opDuration)
-        }
-        _ = try await (opA, opB)
-        let elapsed = Date().timeIntervalSince(start)
 
-        XCTAssertLessThan(elapsed, 0.18, "different-key ops must run in parallel (≈100ms each)")
+        XCTAssertTrue(completed, "different-key ops must run concurrently; the barrier would deadlock otherwise")
     }
 
     func testFailingOperationDoesNotBreakChain() async throws {
@@ -118,6 +135,28 @@ final class SerialOperationQueueTests: XCTestCase {
 
         func snapshot() -> [String] {
             log
+        }
+    }
+
+    /// 2-party rendezvous: each caller blocks in `arriveAndWait`
+    /// until two parties have arrived, at which point both resume.
+    /// Used by ``testKeysAreIndependent`` to assert non-serial
+    /// scheduling without relying on wall-clock timing.
+    private actor TwoPartyBarrier {
+        private var arrived = 0
+        private var continuations: [CheckedContinuation<Void, Never>] = []
+
+        func arriveAndWait() async {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                continuations.append(continuation)
+                arrived += 1
+                guard arrived >= 2 else { return }
+                let toResume = continuations
+                continuations.removeAll()
+                for resumer in toResume {
+                    resumer.resume()
+                }
+            }
         }
     }
 }
