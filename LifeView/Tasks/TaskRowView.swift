@@ -18,14 +18,22 @@ struct TaskRowView: View {
     let onEditTitle: (String) -> Void
     let onDelete: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
             checkbox
 
             VStack(alignment: .leading, spacing: Spacing.xxs) {
                 titleView
+                    // Strike-through + color shift on completion are
+                    // animated together so the row "settles" into its
+                    // completed state instead of snapping. Reduce-motion
+                    // drops the timing to a plain cross-fade through
+                    // `Motion.reduced` (same easing, no spring/bounce).
                     .strikethrough(task.status == .completed, color: Palette.textSecondary)
                     .foregroundStyle(task.status == .completed ? Palette.textSecondary : Palette.textPrimary)
+                    .animation(reduceMotion ? Motion.reduced : Motion.emphasised, value: task.status)
 
                 if let due = task.due {
                     Text(formatDue(due))
@@ -83,6 +91,8 @@ struct TaskRowView: View {
             Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
                 .foregroundStyle(task.status == .completed ? Palette.accent : Palette.textSecondary)
                 .font(Typography.body)
+                .contentTransition(.symbolEffect(.replace))
+                .animation(reduceMotion ? Motion.reduced : Motion.quick, value: task.status)
         }
         .buttonStyle(.plain)
         .disabled(isPending)

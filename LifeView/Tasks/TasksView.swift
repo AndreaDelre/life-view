@@ -18,6 +18,7 @@ struct TasksView: View {
     @State private var selectedTaskID: String?
     @State private var editingTaskID: String?
     @FocusState private var newTaskFieldFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Builds a `Binding<Bool>` for one row's inline-edit state, threading
     /// through the shared `editingTaskID`. Setting `true` records this
@@ -262,6 +263,14 @@ struct TasksView: View {
         accountID: AccountID,
         listID: String
     ) -> some View {
+        // Single-mode uses `List` (for native selection + swipe + keyboard
+        // handling), which doesn't honour per-row `.transition(...)`
+        // modifiers — it has its own insert/remove choreography. We
+        // therefore drive the animation at the container level via
+        // `.animation(_, value: tasks.map(\.id))`, which is what
+        // `List` actually observes to schedule its built-in
+        // fade/slide. The aggregated mode below, which uses
+        // `LazyVStack`, can apply the richer custom `.transition`.
         List(selection: $selectedTaskID) {
             ForEach(tasks) { task in
                 TaskRowView(
@@ -282,6 +291,7 @@ struct TasksView: View {
                 .listRowSeparator(.visible)
             }
         }
+        .animation(reduceMotion ? Motion.reduced : Motion.standard, value: tasks.map(\.id))
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .refreshable { await viewModel.refresh() }
