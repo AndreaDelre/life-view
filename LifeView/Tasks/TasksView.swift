@@ -170,96 +170,24 @@ struct TasksView: View {
                 message: "Ce compte Google n'a pas encore de liste de tâches."
             )
         } else {
-            VStack(alignment: .leading, spacing: Spacing.sm) {
+            VStack(alignment: .leading, spacing: Spacing.md) {
                 singleToolbar(payload)
-                Divider()
                 NewTaskRow(
                     title: $newTaskTitle,
                     due: $newTaskDue,
                     fieldFocused: $newTaskFieldFocused,
                     onSubmit: submitNewTask
                 )
-                Divider()
                 singleTasksSection(payload)
             }
         }
     }
 
-    private func singleToolbar(_ payload: TasksViewModel.SinglePayload) -> some View {
-        HStack(spacing: Spacing.sm) {
-            listMenu(payload)
-
-            Spacer(minLength: 0)
-
-            CompletedToggle(showsCompleted: viewModel.showsCompleted) {
-                viewModel.toggleShowsCompleted()
-            }
-            RefreshButton(isRefreshing: viewModel.isRefreshing) {
-                Task { await viewModel.refresh() }
-            }
-        }
-    }
-
-    /// Combined list-picker + list-CRUD entry point. Lives behind a
-    /// single `Menu` to keep the toolbar compact: pick a list from the
-    /// top section, then below the divider find Nouvelle / Renommer /
-    /// Supprimer for the currently-selected list.
-    private func listMenu(_ payload: TasksViewModel.SinglePayload) -> some View {
-        let selectedTitle = payload.lists
-            .first(where: { $0.id == payload.selectedListID })?.title
-            ?? payload.lists.first?.title
-            ?? "Listes"
-        let selectedList = payload.lists.first(where: { $0.id == payload.selectedListID })
-
-        return Menu {
-            ForEach(payload.lists) { list in
-                Button {
-                    viewModel.selectList(list.id)
-                } label: {
-                    if list.id == payload.selectedListID {
-                        Label(list.title, systemImage: "checkmark")
-                    } else {
-                        Text(list.title)
-                    }
-                }
-            }
-            Divider()
-            Button {
-                presentCreateList()
-            } label: {
-                Label("Nouvelle liste…", systemImage: "plus")
-            }
-            if let selectedList, !selectedList.id.hasPrefix("local-list-") {
-                Divider()
-                Button {
-                    presentRenameList(selectedList)
-                } label: {
-                    Label("Renommer la liste…", systemImage: "pencil")
-                }
-                Button(role: .destructive) {
-                    presentDeleteList(selectedList)
-                } label: {
-                    Label("Supprimer la liste…", systemImage: "trash")
-                }
-            }
-        } label: {
-            HStack(spacing: Spacing.xs) {
-                Text(selectedTitle).lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .imageScale(.small)
-                    .foregroundStyle(Palette.textSecondary)
-                    .accessibilityHidden(true)
-            }
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .accessibilityLabel("Liste : \(selectedTitle)")
-        .accessibilityHint("Change de liste ou crée, renomme, supprime la liste courante")
-    }
-
-    // `presentCreateList` / `presentRenameList` / `presentDeleteList`
-    // live in `TasksView+ListActions.swift` to keep this file under
-    // the SwiftLint `type_body_length` budget.
+    // `singleToolbar`, `listTitleMenu` and `listActionsMenu` live in
+    // `TasksView+SingleToolbar.swift`. The list CRUD prompts (create /
+    // rename / delete) live in `TasksView+ListActions.swift`. Both
+    // splits keep this file under the SwiftLint `file_length` /
+    // `type_body_length` budgets.
 
     @ViewBuilder
     private func singleTasksSection(_ payload: TasksViewModel.SinglePayload) -> some View {
@@ -434,11 +362,11 @@ struct TasksView: View {
                 message: "Ajoute un compte Google pour voir tes tâches ici."
             )
         } else {
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-                HStack(spacing: Spacing.sm) {
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
                     Text("Tous les comptes")
-                        .font(Typography.titleMedium)
-                        .foregroundStyle(Palette.textSecondary)
+                        .font(Typography.titleHero)
+                        .foregroundStyle(Palette.textPrimary)
                         .accessibilityAddTraits(.isHeader)
                     Spacer(minLength: 0)
                     CompletedToggle(showsCompleted: viewModel.showsCompleted) {
@@ -448,9 +376,8 @@ struct TasksView: View {
                         Task { await viewModel.refresh() }
                     }
                 }
-                Divider()
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: Spacing.lg) {
+                    LazyVStack(alignment: .leading, spacing: Spacing.xl) {
                         ForEach(sections) { section in
                             AccountSectionView(
                                 section: section,
