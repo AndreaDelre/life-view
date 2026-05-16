@@ -217,6 +217,147 @@ final class TasksViewModelMutationsTests: XCTestCase {
         XCTAssertNil(viewModel.lastError)
     }
 
+    // MARK: - moveTask
+
+    func testMoveTaskOptimisticallyReordersAndReconciles() async throws {
+        // After: t1 moves to index 2 (between t2 and t3 in the original
+        // array). Expected order post-move: [t2, t1, t3].
+        let moveResp = Data(#"""
+        {"id":"t1","title":"A","status":"needsAction","position":"00000000000000000015"}
+        """#.utf8)
+        let http = StubTasksHTTPClient(
+            TasksViewModelFixture.makeInitialFetchOutcomes(tasks: [
+                (id: "t1", title: "A", status: "needsAction", position: "00000000000000000001"),
+                (id: "t2", title: "B", status: "needsAction", position: "00000000000000000002"),
+                (id: "t3", title: "C", status: "needsAction", position: "00000000000000000003")
+            ]) + [
+                .success(statusCode: 200, body: moveResp)
+            ]
+        )
+        let viewModel = TasksViewModelFixture.makeViewModel(http: http)
+        await viewModel.setSelection(.single(TasksViewModelFixture.accountID))
+
+        // Drag t1 (source 0) down past t2 (drop index 2 = "after the
+        // item originally at index 1") — IndexSet.onMove convention.
+        viewModel.moveTask(
+            from: 0,
+            to: 2,
+            in: TasksViewModelFixture.listID,
+            account: TasksViewModelFixture.accountID
+        )
+
+        // Optimistic reorder is immediate.
+        XCTAssertEqual(tasksInState(viewModel.state).map(\.id), ["t2", "t1", "t3"])
+        XCTAssertTrue(viewModel.isPending(taskID: "t1"))
+
+        // Wait for the move request to land and the row to reconcile.
+        await AsyncWait.until { http.requests.count == 3 }
+        await AsyncWait.until { !viewModel.isPending(taskID: "t1") }
+
+        XCTAssertEqual(tasksInState(viewModel.state).map(\.id), ["t2", "t1", "t3"])
+        // The server's updated `position` must be reflected on the row.
+        XCTAssertEqual(
+            tasksInState(viewModel.state).first(where: { $0.id == "t1" })?.position,
+            "00000000000000000015"
+        )
+        XCTAssertNil(viewModel.lastError)
+
+        // The move request must carry `previous=t2` (the new sibling
+        // immediately above t1 in the reordered array).
+        let moveReq = http.requests[2]
+        XCTAssertEqual(moveReq.httpMethod, "POST")
+        XCTAssertEqual(moveReq.url?.path.hasSuffix("/lists/list-1/tasks/t1/move"), true)
+        let query = URLComponents(url: try XCTUnwrap(moveReq.url), resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(query?.first(where: { $0.name == "previous" })?.value, "t2")
+    }
+
+    func testMoveTaskToTopSendsNoPreviousQueryParam() async throws {
+        let moveResp = Data(#"""
+        {"id":"t3","title":"C","status":"needsAction","position":"00000000000000000000"}
+        """#.utf8)
+        let http = StubTasksHTTPClient(
+            TasksViewModelFixture.makeInitialFetchOutcomes(tasks: [
+                (id: "t1", title: "A", status: "needsAction", position: "00000000000000000001"),
+                (id: "t2", title: "B", status: "needsAction", position: "00000000000000000002"),
+                (id: "t3", title: "C", status: "needsAction", position: "00000000000000000003")
+            ]) + [
+                .success(statusCode: 200, body: moveResp)
+            ]
+        )
+        let viewModel = TasksViewModelFixture.makeViewModel(http: http)
+        await viewModel.setSelection(.single(TasksViewModelFixture.accountID))
+
+        viewModel.moveTask(
+            from: 2,
+            to: 0,
+            in: TasksViewModelFixture.listID,
+            account: TasksViewModelFixture.accountID
+        )
+
+        XCTAssertEqual(tasksInState(viewModel.state).map(\.id), ["t3", "t1", "t2"])
+        await AsyncWait.until { http.requests.count == 3 }
+
+        let moveReq = http.requests[2]
+        let query = URLComponents(url: try XCTUnwrap(moveReq.url), resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertNil(
+            query?.first(where: { $0.name == "previous" }),
+            "moving to the top must omit the `previous` query param"
+        )
+    }
+
+    func testMoveTaskFailureRollsBackOrder() async {
+        let http = StubTasksHTTPClient(
+            TasksViewModelFixture.makeInitialFetchOutcomes(tasks: [
+                (id: "t1", title: "A", status: "needsAction", position: "00000000000000000001"),
+                (id: "t2", title: "B", status: "needsAction", position: "00000000000000000002"),
+                (id: "t3", title: "C", status: "needsAction", position: "00000000000000000003")
+            ]) + [
+                .success(statusCode: 500, body: Data())
+            ]
+        )
+        let viewModel = TasksViewModelFixture.makeViewModel(http: http)
+        await viewModel.setSelection(.single(TasksViewModelFixture.accountID))
+
+        viewModel.moveTask(
+            from: 0,
+            to: 2,
+            in: TasksViewModelFixture.listID,
+            account: TasksViewModelFixture.accountID
+        )
+        XCTAssertEqual(tasksInState(viewModel.state).map(\.id), ["t2", "t1", "t3"])
+
+        await AsyncWait.until { viewModel.lastError != nil }
+        XCTAssertEqual(
+            tasksInState(viewModel.state).map(\.id),
+            ["t1", "t2", "t3"],
+            "failed move must restore the original order"
+        )
+        XCTAssertFalse(viewModel.isPending(taskID: "t1"))
+    }
+
+    func testMoveTaskNoOpWhenDestinationEqualsSource() async {
+        let http = StubTasksHTTPClient(
+            TasksViewModelFixture.makeInitialFetchOutcomes(tasks: [
+                (id: "t1", title: "A", status: "needsAction", position: "00000000000000000001"),
+                (id: "t2", title: "B", status: "needsAction", position: "00000000000000000002")
+            ])
+        )
+        let viewModel = TasksViewModelFixture.makeViewModel(http: http)
+        await viewModel.setSelection(.single(TasksViewModelFixture.accountID))
+
+        viewModel.moveTask(
+            from: 1,
+            to: 1,
+            in: TasksViewModelFixture.listID,
+            account: TasksViewModelFixture.accountID
+        )
+
+        // Only the two initial fetches should have hit the network.
+        XCTAssertEqual(http.requests.count, 2)
+        XCTAssertEqual(tasksInState(viewModel.state).map(\.id), ["t1", "t2"])
+        XCTAssertFalse(viewModel.isPending(taskID: "t1"))
+    }
+
     // MARK: - Helpers
 
     /// Pulls the visible `[TaskItem]` out of the VM state regardless of

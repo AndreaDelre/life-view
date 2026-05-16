@@ -290,6 +290,21 @@ struct TasksView: View {
                 .tag(task.id)
                 .listRowSeparator(.visible)
             }
+            // Drag-to-reorder. `.onMove` is only honored on `ForEach`
+            // *inside* a `List` on macOS — it wires up the native drag
+            // handle and the slide-while-dragging visual. Aggregated
+            // mode (LazyVStack) is intentionally out of scope for P6.3:
+            // it would require a hand-rolled NSItemProvider/.onDrop
+            // pipeline.
+            .onMove { indices, newOffset in
+                guard let sourceIndex = indices.first else { return }
+                viewModel.moveTask(
+                    from: sourceIndex,
+                    to: newOffset,
+                    in: listID,
+                    account: accountID
+                )
+            }
         }
         .animation(reduceMotion ? Motion.reduced : Motion.standard, value: tasks.map(\.id))
         .listStyle(.plain)

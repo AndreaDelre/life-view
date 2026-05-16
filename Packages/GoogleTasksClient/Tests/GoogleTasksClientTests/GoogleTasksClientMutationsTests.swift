@@ -257,6 +257,100 @@ final class GoogleTasksClientMutationsTests: XCTestCase {
         }
     }
 
+    // MARK: - moveTask
+
+    func testMoveTaskEndpointShape() {
+        let withPrevious = GoogleTasksEndpoints.moveTask(
+            in: "list-1",
+            taskID: "t1",
+            parent: nil,
+            previous: "t2"
+        )
+        XCTAssertTrue(withPrevious.path.hasSuffix("/lists/list-1/tasks/t1/move"))
+        let components = URLComponents(url: withPrevious, resolvingAgainstBaseURL: false)
+        XCTAssertEqual(
+            components?.queryItems?.first(where: { $0.name == "previous" })?.value,
+            "t2"
+        )
+
+        let toTop = GoogleTasksEndpoints.moveTask(
+            in: "list-1",
+            taskID: "t1",
+            parent: nil,
+            previous: nil
+        )
+        XCTAssertNil(URLComponents(url: toTop, resolvingAgainstBaseURL: false)?.queryItems)
+    }
+
+    func testMoveTaskPostsAndReturnsUpdatedPosition() async throws {
+        let responseJSON = """
+        {"id":"t1","title":"x","status":"needsAction","position":"00000000000000000010"}
+        """
+        let http = StubTasksHTTPClient([
+            .success(statusCode: 200, body: Data(responseJSON.utf8))
+        ])
+        let client = GoogleTasksClient(authorizing: StubTasksAuthorizing(), http: http)
+
+        let moved = try await client.moveTask(
+            in: "list-1",
+            taskID: "t1",
+            previous: "t2"
+        )
+
+        XCTAssertEqual(moved.id, "t1")
+        XCTAssertEqual(moved.position, "00000000000000000010")
+
+        XCTAssertEqual(http.requests.count, 1)
+        let req = http.requests[0]
+        XCTAssertEqual(req.httpMethod, "POST")
+        XCTAssertEqual(req.url?.path.hasSuffix("/lists/list-1/tasks/t1/move"), true)
+        XCTAssertNil(req.httpBody, "move requests carry no JSON body")
+        let query = URLComponents(url: try XCTUnwrap(req.url), resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(query?.first(where: { $0.name == "previous" })?.value, "t2")
+    }
+
+    func testMoveTaskUpdatesCachedPositionAndOrder() async throws {
+        let seed = """
+        {"items":[
+          {"id":"t1","title":"a","status":"needsAction","position":"00000000000000000001"},
+          {"id":"t2","title":"b","status":"needsAction","position":"00000000000000000002"},
+          {"id":"t3","title":"c","status":"needsAction","position":"00000000000000000003"}
+        ]}
+        """
+        // Move t1 after t3 → server returns t1 with a new position
+        // string lexicographically greater than t3's.
+        let moveResp = """
+        {"id":"t1","title":"a","status":"needsAction","position":"00000000000000000004"}
+        """
+        let http = StubTasksHTTPClient([
+            .success(statusCode: 200, body: Data(seed.utf8)),
+            .success(statusCode: 200, body: Data(moveResp.utf8))
+        ])
+        let client = GoogleTasksClient(authorizing: StubTasksAuthorizing(), http: http)
+
+        _ = try await client.fetchTasks(in: "list-1")
+        _ = try await client.moveTask(in: "list-1", taskID: "t1", previous: "t3")
+
+        let cached = await client.cachedTasks(for: "list-1", showCompleted: false)
+        XCTAssertEqual(cached?.map(\.id), ["t2", "t3", "t1"])
+    }
+
+    func testMoveTaskSurfacesHTTPError() async throws {
+        let http = StubTasksHTTPClient([
+            .success(statusCode: 500, body: Data())
+        ])
+        let client = GoogleTasksClient(authorizing: StubTasksAuthorizing(), http: http)
+
+        do {
+            _ = try await client.moveTask(in: "list-1", taskID: "t1", previous: nil)
+            XCTFail("expected http error")
+        } catch let GoogleTasksError.http(status) {
+            XCTAssertEqual(status, 500)
+        } catch {
+            XCTFail("unexpected \(error)")
+        }
+    }
+
     // MARK: - 401 retry on mutations
 
     func testInsertTaskRetriesAfter401() async throws {

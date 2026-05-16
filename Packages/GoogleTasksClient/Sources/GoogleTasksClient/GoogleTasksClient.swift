@@ -22,7 +22,7 @@ import os
 public actor GoogleTasksClient {
     private let authorizing: TasksAuthorizing
     private let http: TasksHTTPClient
-    private let logger: Logger
+    let logger: Logger
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
@@ -250,7 +250,7 @@ public actor GoogleTasksClient {
         }
     }
 
-    private func applyUpdateToCache(_ task: TaskItem, listID: String) {
+    func applyUpdateToCache(_ task: TaskItem, listID: String) {
         for key in cachedTasks.keys where key.listID == listID {
             var list = cachedTasks[key] ?? []
             list.removeAll { $0.id == task.id }
@@ -338,7 +338,7 @@ public actor GoogleTasksClient {
         }
     }
 
-    private func performMutation<T: Decodable>(
+    func performMutation<T: Decodable>(
         description: String,
         method: String,
         url: URL,
