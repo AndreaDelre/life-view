@@ -103,7 +103,17 @@ public enum Palette {
 
     /// Brand / accent colour. We follow the user's macOS accent so the
     /// app feels native — there is intentionally no custom brand hue.
-    public static let accent = Color.accentColor
+    ///
+    /// Sourced from AppKit's `.controlAccentColor` (rather than
+    /// SwiftUI's `Color.accentColor`) so it does **not** participate in
+    /// the SwiftUI tint cascade. We deliberately override `.tint(...)`
+    /// on the single-mode `List` to neutralise its native blue
+    /// selection bar — if `Palette.accent` resolved through that
+    /// cascade, every accent-coloured glyph inside a row (checked
+    /// checkbox, completion tick, etc.) would inherit the neutral
+    /// override and lose its identity. `Color(nsColor:)` short-circuits
+    /// the cascade and always returns the user's chosen system accent.
+    public static let accent = Color(nsColor: .controlAccentColor)
     /// Soft hairline separator. Maps to AppKit's standard separator.
     public static let separator = Color(nsColor: .separatorColor)
     /// Destructive / danger surface (delete, irrecoverable action).

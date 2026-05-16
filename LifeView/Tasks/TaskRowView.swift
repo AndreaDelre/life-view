@@ -24,10 +24,6 @@ struct TaskRowView: View {
     /// ``totalSubtasks`` for the `X/Y` counter.
     var completedSubtasks: Int = 0
     @Binding var isEditing: Bool
-    /// Whether the row is the currently-selected row. In single-mode
-    /// this mirrors `List`'s selection state; aggregated-mode passes
-    /// `false` since there is no row-level keyboard cursor there.
-    var isSelected: Bool = false
     let onToggleCompletion: (Bool) -> Void
     let onEditTitle: (String) -> Void
     let onDelete: () -> Void
@@ -80,19 +76,19 @@ struct TaskRowView: View {
         .padding(.vertical, Spacing.sm)
         .padding(.horizontal, Spacing.xs)
         .background(
-            // Two-step row tint: a neutral selected fill (stronger,
-            // sourced from `.labelColor` — never the system accent
-            // blue) under a softer hover fill. Drawn behind the
-            // content with a rounded shape so it reads as a modern
-            // pointer affordance rather than a flat selection bar.
-            // We toggle opacity (not the view's presence) so SwiftUI
-            // can cross-fade the highlight in / out instead of snapping.
+            // Soft hover tint scoped to the row's bounds. Drawn behind
+            // the content with a rounded shape so it reads as a modern
+            // pointer affordance rather than a flat selection bar. We
+            // toggle opacity (not the view's presence) so SwiftUI can
+            // cross-fade the highlight in / out instead of snapping.
+            // Selected-state visual is handled by the parent `List`'s
+            // tint override — keeping it there avoids double-painting
+            // the row when both states are active.
             RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(rowTint)
-                .opacity(rowTint == .clear ? 0 : 1)
+                .fill(Palette.surfaceHover)
+                .opacity(isHovering && !isPending ? 1 : 0)
         )
         .animation(reduceMotion ? Motion.reduced : Motion.quick, value: isHovering)
-        .animation(reduceMotion ? Motion.reduced : Motion.quick, value: isSelected)
         .onHover { hovering in
             isHovering = hovering
         }
@@ -150,16 +146,6 @@ struct TaskRowView: View {
             guard !isPending else { return }
             onDelete()
         }
-    }
-
-    /// Pre-resolved selection / hover tint. Selected beats hover beats
-    /// idle — and pending rows skip the highlight entirely because a
-    /// row that is mid-sync should read as "busy", not "clickable".
-    private var rowTint: Color {
-        if isPending { return .clear }
-        if isSelected { return Palette.surfaceRowSelected }
-        if isHovering { return Palette.surfaceHover }
-        return .clear
     }
 
     private var checkbox: some View {
