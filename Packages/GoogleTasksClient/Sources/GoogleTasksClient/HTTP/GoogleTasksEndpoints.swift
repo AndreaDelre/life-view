@@ -48,4 +48,40 @@ enum GoogleTasksEndpoints {
         // swiftlint:disable:next force_unwrapping
         return components.url!
     }
+
+    /// `POST /lists/{listID}/tasks` — body is a ``RemoteTaskInput``.
+    static func insertTask(in listID: String) -> URL {
+        let escapedID = listID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? listID
+        return base.appendingPathComponent("lists/\(escapedID)/tasks")
+    }
+
+    /// `PATCH /lists/{listID}/tasks/{taskID}` — body is a ``RemoteTaskPatch``.
+    static func updateTask(in listID: String, taskID: String) -> URL {
+        let escapedList = listID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? listID
+        let escapedTask = taskID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? taskID
+        return base.appendingPathComponent("lists/\(escapedList)/tasks/\(escapedTask)")
+    }
+
+    /// `DELETE /lists/{listID}/tasks/{taskID}` — no body, expected 204.
+    static func deleteTask(in listID: String, taskID: String) -> URL {
+        updateTask(in: listID, taskID: taskID)
+    }
+
+    /// `POST /users/@me/lists` — body is a ``RemoteTaskListInput``.
+    static func insertTaskList() -> URL {
+        base.appendingPathComponent("users/@me/lists")
+    }
+
+    /// `PATCH /users/@me/lists/{listID}` — body is a ``RemoteTaskListInput``.
+    /// Used to rename a list; `title` is the only mutable field.
+    static func updateTaskList(listID: String) -> URL {
+        let escapedID = listID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? listID
+        return base.appendingPathComponent("users/@me/lists/\(escapedID)")
+    }
+
+    /// `DELETE /users/@me/lists/{listID}` — no body, expected 204. Deletes
+    /// the list and every task it contains (server-side cascade).
+    static func deleteTaskList(listID: String) -> URL {
+        updateTaskList(listID: listID)
+    }
 }

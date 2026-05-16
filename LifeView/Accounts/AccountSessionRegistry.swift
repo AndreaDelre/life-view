@@ -25,19 +25,27 @@ import GoogleTasksClient
 /// The registry never touches the network: it just hands out clients.
 @MainActor
 final class AccountSessionRegistry {
-    private let store: AccountStore
+    private let clientFactory: @MainActor (AccountID) -> GoogleTasksClient
     private var clients: [AccountID: GoogleTasksClient] = [:]
 
     init(store: AccountStore) {
-        self.store = store
+        clientFactory = { id in
+            GoogleTasksClient(authorizing: AccountStoreTasksAdapter(store: store, accountID: id))
+        }
+    }
+
+    /// Testing seam: lets unit tests inject pre-built ``GoogleTasksClient``
+    /// instances backed by stub HTTP / auth, without touching the real
+    /// ``AccountStore``. Production code keeps using the store-backed
+    /// initialiser above.
+    init(clientFactory: @escaping @MainActor (AccountID) -> GoogleTasksClient) {
+        self.clientFactory = clientFactory
     }
 
     /// Returns the client for `id`, creating it on first request. Idempotent.
     func client(for id: AccountID) -> GoogleTasksClient {
         if let cached = clients[id] { return cached }
-        let client = GoogleTasksClient(
-            authorizing: AccountStoreTasksAdapter(store: store, accountID: id)
-        )
+        let client = clientFactory(id)
         clients[id] = client
         return client
     }

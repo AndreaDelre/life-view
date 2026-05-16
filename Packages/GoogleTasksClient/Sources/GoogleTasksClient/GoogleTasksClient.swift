@@ -24,6 +24,7 @@ public actor GoogleTasksClient {
     private let http: TasksHTTPClient
     private let logger: Logger
     private let decoder: JSONDecoder
+    private let encoder: JSONEncoder
 
     private var cachedLists: [TaskList]?
     /// Keyed by ``TasksCacheKey`` so the panel can flip the
@@ -42,11 +43,12 @@ public actor GoogleTasksClient {
     ) {
         self.authorizing = authorizing
         self.http = http
-        self.logger = Logger(subsystem: "fr.andreadelre.LifeView", category: "GoogleTasksClient")
-        self.decoder = Self.makeDecoder()
+        logger = Logger(subsystem: "fr.andreadelre.LifeView", category: "GoogleTasksClient")
+        decoder = Self.makeDecoder()
+        encoder = Self.makeEncoder()
     }
 
-    // MARK: - Public API
+    // MARK: - Public API — Read
 
     /// Returns all task lists for the signed-in account.
     ///
@@ -114,6 +116,183 @@ public actor GoogleTasksClient {
         cachedTasks.removeAll()
     }
 
+    // MARK: - Public API — Write (P5)
+
+    /// Creates a new task in `listID`. Returns the server's canonical
+    /// representation (with the server-assigned `id` and `position`).
+    ///
+    /// On success, the client surgically appends the task to every
+    /// cached `(listID, *)` entry where the new task would be visible —
+    /// a freshly-inserted task is always `needsAction`, so it appears
+    /// in both `showCompleted=false` and `showCompleted=true` views.
+    @discardableResult
+    public func insertTask(in listID: String, draft: TaskDraft) async throws -> TaskItem {
+        let body = try encoder.encode(RemoteTaskInput(draft: draft))
+        let url = GoogleTasksEndpoints.insertTask(in: listID)
+        let remote: RemoteTask = try await performMutation(
+            description: "POST tasks",
+            method: "POST",
+            url: url,
+            body: body
+        )
+        guard let inserted = remote.toDomain() else {
+            throw GoogleTasksError.decodingFailed
+        }
+        applyInsertToCache(inserted, listID: listID)
+        logger.debug("Inserted task in list")
+        return inserted
+    }
+
+    /// Applies a partial update. No-ops (empty patch) short-circuit
+    /// without hitting the network — Google would reject an empty
+    /// PATCH body anyway, and avoiding the call keeps the optimistic-UI
+    /// queue cheap.
+    @discardableResult
+    public func updateTask(
+        in listID: String,
+        taskID: String,
+        patch: TaskPatch
+    ) async throws -> TaskItem {
+        if patch.isEmpty {
+            // Refetch from cache if possible; otherwise fall through to
+            // a `GET`-like resolution would be overkill. The view-model
+            // never sends empty patches in practice.
+            throw GoogleTasksError.emptyPatch
+        }
+        let body = try encoder.encode(RemoteTaskPatch(patch: patch))
+        let url = GoogleTasksEndpoints.updateTask(in: listID, taskID: taskID)
+        let remote: RemoteTask = try await performMutation(
+            description: "PATCH tasks",
+            method: "PATCH",
+            url: url,
+            body: body
+        )
+        guard let updated = remote.toDomain() else {
+            throw GoogleTasksError.decodingFailed
+        }
+        applyUpdateToCache(updated, listID: listID)
+        logger.debug("Patched task in list")
+        return updated
+    }
+
+    /// Deletes the task. Surgically removes it from every cached view
+    /// of `listID` on success.
+    public func deleteTask(in listID: String, taskID: String) async throws {
+        let url = GoogleTasksEndpoints.deleteTask(in: listID, taskID: taskID)
+        try await performMutationVoid(
+            description: "DELETE tasks",
+            method: "DELETE",
+            url: url,
+            body: nil
+        )
+        applyDeleteToCache(taskID: taskID, listID: listID)
+        logger.debug("Deleted task in list")
+    }
+
+    /// Creates a new task list. Returns the server's canonical
+    /// representation (with the server-assigned `id` and `updatedAt`).
+    @discardableResult
+    public func insertTaskList(title: String) async throws -> TaskList {
+        let body = try encoder.encode(RemoteTaskListInput(title: title))
+        let url = GoogleTasksEndpoints.insertTaskList()
+        let remote: RemoteTaskList = try await performMutation(
+            description: "POST lists",
+            method: "POST",
+            url: url,
+            body: body
+        )
+        let inserted = remote.toDomain()
+        applyInsertToListsCache(inserted)
+        logger.debug("Inserted task list")
+        return inserted
+    }
+
+    /// Renames an existing list. Only `title` is mutable.
+    @discardableResult
+    public func renameTaskList(listID: String, title: String) async throws -> TaskList {
+        let body = try encoder.encode(RemoteTaskListInput(title: title))
+        let url = GoogleTasksEndpoints.updateTaskList(listID: listID)
+        let remote: RemoteTaskList = try await performMutation(
+            description: "PATCH lists",
+            method: "PATCH",
+            url: url,
+            body: body
+        )
+        let renamed = remote.toDomain()
+        applyUpdateToListsCache(renamed)
+        logger.debug("Renamed task list")
+        return renamed
+    }
+
+    /// Deletes a list (and every task it contains — server-side cascade).
+    /// Drops cached lists and any cached tasks for this list.
+    public func deleteTaskList(listID: String) async throws {
+        let url = GoogleTasksEndpoints.deleteTaskList(listID: listID)
+        try await performMutationVoid(
+            description: "DELETE lists",
+            method: "DELETE",
+            url: url,
+            body: nil
+        )
+        applyDeleteToListsCache(listID: listID)
+        logger.debug("Deleted task list")
+    }
+
+    // MARK: - Cache helpers
+
+    private func applyInsertToCache(_ task: TaskItem, listID: String) {
+        for key in cachedTasks.keys where key.listID == listID {
+            var list = cachedTasks[key] ?? []
+            list.removeAll { $0.id == task.id }
+            list.append(task)
+            list.sort { $0.position < $1.position }
+            cachedTasks[key] = list
+        }
+    }
+
+    private func applyUpdateToCache(_ task: TaskItem, listID: String) {
+        for key in cachedTasks.keys where key.listID == listID {
+            var list = cachedTasks[key] ?? []
+            list.removeAll { $0.id == task.id }
+            // Re-insert only if the task belongs in this view: the
+            // `showCompleted=false` cache must not retain a task that
+            // just got marked as completed.
+            if key.showCompleted || task.status == .needsAction {
+                list.append(task)
+                list.sort { $0.position < $1.position }
+            }
+            cachedTasks[key] = list
+        }
+    }
+
+    private func applyDeleteToCache(taskID: String, listID: String) {
+        for key in cachedTasks.keys where key.listID == listID {
+            cachedTasks[key]?.removeAll { $0.id == taskID }
+        }
+    }
+
+    private func applyInsertToListsCache(_ list: TaskList) {
+        guard var cached = cachedLists else { return }
+        cached.removeAll { $0.id == list.id }
+        cached.append(list)
+        cachedLists = cached
+    }
+
+    private func applyUpdateToListsCache(_ list: TaskList) {
+        guard var cached = cachedLists else { return }
+        if let index = cached.firstIndex(where: { $0.id == list.id }) {
+            cached[index] = list
+            cachedLists = cached
+        }
+    }
+
+    private func applyDeleteToListsCache(listID: String) {
+        cachedLists?.removeAll { $0.id == listID }
+        // Drop every tasks-cache entry for the deleted list — those rows
+        // no longer exist server-side after the cascade.
+        cachedTasks = cachedTasks.filter { $0.key.listID != listID }
+    }
+
     // MARK: - Pagination
 
     private func fetchAllPages<Page: Decodable, Item>(
@@ -142,9 +321,11 @@ public actor GoogleTasksClient {
     // MARK: - HTTP + 401 retry
 
     private func fetch<T: Decodable>(url: URL, as _: T.Type) async throws -> T {
-        let (data, response) = try await performAuthorizedRequest(url: url)
+        let (data, response) = try await performAuthorizedRequest { token in
+            self.makeRequest(url: url, bearer: token, method: "GET", body: nil)
+        }
 
-        guard (200..<300).contains(response.statusCode) else {
+        guard (200 ..< 300).contains(response.statusCode) else {
             logger.error("HTTP \(response.statusCode, privacy: .public) for \(url.path, privacy: .public)")
             throw GoogleTasksError.http(statusCode: response.statusCode)
         }
@@ -157,9 +338,50 @@ public actor GoogleTasksClient {
         }
     }
 
-    private func performAuthorizedRequest(url: URL) async throws -> (Data, HTTPURLResponse) {
+    private func performMutation<T: Decodable>(
+        description: String,
+        method: String,
+        url: URL,
+        body: Data?
+    ) async throws -> T {
+        let (data, response) = try await performAuthorizedRequest { token in
+            self.makeRequest(url: url, bearer: token, method: method, body: body)
+        }
+
+        guard (200 ..< 300).contains(response.statusCode) else {
+            logger.error("HTTP \(response.statusCode, privacy: .public) for \(description, privacy: .public)")
+            throw GoogleTasksError.http(statusCode: response.statusCode)
+        }
+
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            logger.error("Decoding failed for \(description, privacy: .public)")
+            throw GoogleTasksError.decodingFailed
+        }
+    }
+
+    private func performMutationVoid(
+        description: String,
+        method: String,
+        url: URL,
+        body: Data?
+    ) async throws {
+        let (_, response) = try await performAuthorizedRequest { token in
+            self.makeRequest(url: url, bearer: token, method: method, body: body)
+        }
+
+        guard (200 ..< 300).contains(response.statusCode) else {
+            logger.error("HTTP \(response.statusCode, privacy: .public) for \(description, privacy: .public)")
+            throw GoogleTasksError.http(statusCode: response.statusCode)
+        }
+    }
+
+    private func performAuthorizedRequest(
+        buildRequest: (String) -> URLRequest
+    ) async throws -> (Data, HTTPURLResponse) {
         let initialToken = try await authorizing.accessToken()
-        let request = makeRequest(url: url, bearer: initialToken)
+        let request = buildRequest(initialToken)
 
         let (data, response): (Data, HTTPURLResponse)
         do {
@@ -182,7 +404,7 @@ public actor GoogleTasksClient {
         } catch {
             throw GoogleTasksError.unauthorized
         }
-        let retryRequest = makeRequest(url: url, bearer: refreshedToken)
+        let retryRequest = buildRequest(refreshedToken)
         let (retryData, retryResponse): (Data, HTTPURLResponse)
         do {
             (retryData, retryResponse) = try await http.send(retryRequest)
@@ -198,15 +420,19 @@ public actor GoogleTasksClient {
         return (retryData, retryResponse)
     }
 
-    private func makeRequest(url: URL, bearer: String) -> URLRequest {
+    private func makeRequest(url: URL, bearer: String, method: String, body: Data?) -> URLRequest {
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = method
         request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         return request
     }
 
-    // MARK: - Decoder
+    // MARK: - Decoder + Encoder
 
     private static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
@@ -228,5 +454,18 @@ public actor GoogleTasksClient {
             )
         }
         return decoder
+    }
+
+    private static func makeEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        // Symmetric to the decoder: emit RFC3339 with fractional seconds.
+        // Google accepts both shapes; this avoids drift if a round-trip
+        // re-encodes a previously-decoded date.
+        let formatter = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var container = encoder.singleValueContainer()
+            try container.encode(formatter.format(date))
+        }
+        return encoder
     }
 }
