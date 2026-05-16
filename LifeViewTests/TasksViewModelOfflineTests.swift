@@ -258,6 +258,55 @@ final class TasksViewModelOfflineTests: XCTestCase {
             XCTFail("expected .completeTask payload, got \(String(describing: pending.first?.payload))")
         }
     }
+
+    /// Toggle complétion sur tâche server-ID en offline → l'opération
+    /// est queue ET le flag `pendingTaskIDs` est libéré pour que la row
+    /// reste interactive (la dernière mutation drainée gagne).
+    func testCompletionTransportFailure_clearsPendingFlag() async throws {
+        let cache = try OfflineCacheStore.inMemory()
+        let http = StubTasksHTTPClient(
+            TasksViewModelFixture.makeInitialFetchOutcomes(tasks: [
+                (id: "t1", title: "Cocher", status: "needsAction", position: "p1")
+            ]) + [
+                .success(statusCode: 500, body: Data())
+            ]
+        )
+        let viewModel = TasksViewModelFixture.makeViewModel(http: http, cache: cache)
+        await viewModel.setSelection(.single(accountID))
+
+        viewModel.setCompletion(true, for: "t1", in: listID, account: accountID)
+        await waitForPendingWrite(cache: cache, accountID: accountID)
+
+        XCTAssertFalse(
+            viewModel.isPending(taskID: "t1"),
+            "offline completion must release pending flag so the row stays interactive"
+        )
+    }
+
+    /// Drag-to-reorder en offline → la move est queue ET le flag
+    /// `pendingTaskIDs` est libéré.
+    func testMoveTransportFailure_clearsPendingFlag() async throws {
+        let cache = try OfflineCacheStore.inMemory()
+        let http = StubTasksHTTPClient(
+            TasksViewModelFixture.makeInitialFetchOutcomes(tasks: [
+                (id: "t1", title: "Un", status: "needsAction", position: "00000000000000000001"),
+                (id: "t2", title: "Deux", status: "needsAction", position: "00000000000000000002")
+            ]) + [
+                .success(statusCode: 500, body: Data())
+            ]
+        )
+        let viewModel = TasksViewModelFixture.makeViewModel(http: http, cache: cache)
+        await viewModel.setSelection(.single(accountID))
+
+        // Move t1 (index 0) to be after t2 (drop at index 2).
+        viewModel.moveTask(from: 0, to: 2, in: listID, account: accountID)
+        await waitForPendingWrite(cache: cache, accountID: accountID)
+
+        XCTAssertFalse(
+            viewModel.isPending(taskID: "t1"),
+            "offline move must release pending flag so the row stays interactive"
+        )
+    }
 }
 
 /// Small helper duplicated from the P5 test file because XCTestCase

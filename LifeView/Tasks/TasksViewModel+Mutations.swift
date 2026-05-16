@@ -372,6 +372,11 @@ extension TasksViewModel {
             } catch {
                 guard let self else { return }
                 if Self.isTransportFailure(error) {
+                    // Offline path: keep the optimistic re-order, queue
+                    // the move, and clear `pendingTaskIDs` so the row
+                    // stays interactive (toggle / edit / further drag
+                    // remain possible while offline).
+                    pendingTaskIDs.remove(movedTaskID)
                     enqueuePending(
                         .moveTask(listID: listID, taskID: movedTaskID, previousTaskID: capturedPrevious),
                         accountID: accountID
@@ -425,10 +430,12 @@ extension TasksViewModel {
             } catch {
                 guard let self else { return }
                 if Self.isTransportFailure(error) {
-                    // Idempotent patch: keep the optimistic UI, queue
-                    // the intent. `pendingTaskIDs` stays set so the
-                    // row continues to render as pending until the
-                    // drain rewrites it after reconnect.
+                    // Offline path: keep the optimistic UI, queue the
+                    // intent, and clear `pendingTaskIDs` so the row
+                    // stays interactive (further toggles / edits are
+                    // re-queued as new patches; idempotent — the last
+                    // patch to drain wins).
+                    pendingTaskIDs.remove(taskID)
                     let payload = Self.payload(for: patch, listID: listID, taskID: taskID)
                     enqueuePending(payload, accountID: accountID)
                     return
