@@ -25,12 +25,14 @@ struct NewTaskRow: View {
             .buttonStyle(.plain)
             .disabled(!canSubmit)
             .accessibilityLabel("Créer la tâche")
+            .accessibilityHint("Ajoute la tâche à la liste sélectionnée")
 
             TextField("Nouvelle tâche", text: $title)
                 .textFieldStyle(.plain)
                 .focused($fieldFocused)
                 .onSubmit(onSubmit)
                 .accessibilityLabel("Titre de la nouvelle tâche")
+                .accessibilityHint("Appuie sur Entrée pour valider")
 
             QuickDatePicker(date: $due)
         }

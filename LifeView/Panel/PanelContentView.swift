@@ -84,8 +84,10 @@ struct PanelContentView: View {
             Image(systemName: "checklist")
                 .font(.title2)
                 .foregroundStyle(.tint)
+                .accessibilityHidden(true)
             Text("LifeView")
                 .font(Typography.titleLarge)
+                .accessibilityAddTraits(.isHeader)
             Spacer()
             helpButton
         }
@@ -100,6 +102,7 @@ struct PanelContentView: View {
         .buttonStyle(.borderless)
         .help("Afficher l’aide raccourcis (?)")
         .accessibilityLabel("Afficher l’aide raccourcis")
+        .accessibilityHint("Ouvre la liste des raccourcis clavier")
     }
 
     private func toggleHelp() {
@@ -127,6 +130,7 @@ struct PanelContentView: View {
         HStack(spacing: Spacing.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(Palette.warning)
+                .accessibilityLabel("Avertissement")
             Text(message)
                 .font(Typography.caption)
                 .foregroundStyle(Palette.textPrimary)
@@ -141,6 +145,7 @@ struct PanelContentView: View {
         .padding(.vertical, Spacing.xs)
         .padding(.horizontal, Spacing.sm)
         .background(Palette.surfaceWarning, in: RoundedRectangle(cornerRadius: Radius.md))
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Derived state

@@ -78,6 +78,8 @@ struct AccountsBarView: View {
             .buttonStyle(.borderless)
             .help(viewModel.mode == .all ? "Vue agrégée — désactiver" : "Voir tous les comptes")
             .accessibilityLabel(viewModel.mode == .all ? "Désactiver la vue tous comptes" : "Vue tous comptes")
+            .accessibilityAddTraits(viewModel.mode == .all ? [.isButton, .isSelected] : .isButton)
+            .accessibilityHint("Bascule entre l’affichage d’un compte unique et la vue agrégée")
         }
     }
 
@@ -91,6 +93,7 @@ struct AccountsBarView: View {
         .disabled(viewModel.isWorking)
         .help("Ajouter un compte Google")
         .accessibilityLabel("Ajouter un compte Google")
+        .accessibilityHint("Démarre la procédure d’authentification d’un compte Google supplémentaire")
     }
 
     // MARK: - Helpers
@@ -138,6 +141,9 @@ private struct AccountAvatarButton: View {
         .buttonStyle(.plain)
         .help(displayLabel)
         .accessibilityLabel(displayLabel)
+        .accessibilityValue(isSelected ? "sélectionné" : "")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityHint("Sélectionne ce compte. Clic droit pour renommer ou déconnecter")
         .contextMenu {
             Section {
                 Text(account.profile.email)

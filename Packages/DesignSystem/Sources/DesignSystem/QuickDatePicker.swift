@@ -28,6 +28,7 @@ public struct QuickDatePicker: View {
             HStack(spacing: Spacing.xs) {
                 Image(systemName: "calendar")
                     .imageScale(.small)
+                    .accessibilityHidden(true)
                 Text(buttonLabel)
                     .font(Typography.caption)
                     .lineLimit(1)
@@ -37,9 +38,22 @@ public struct QuickDatePicker: View {
         .buttonStyle(.plain)
         .help("Date d'échéance")
         .accessibilityLabel("Date d'échéance")
+        .accessibilityValue(accessibilityValueText)
+        .accessibilityHint("Ouvre le sélecteur de date")
         .popover(isPresented: $popoverOpen, arrowEdge: .bottom) {
             popoverContent
         }
+    }
+
+    /// Spoken value: "aucune" when empty, "aujourd'hui" / "demain", or
+    /// the formatted date so VoiceOver users hear the actual selection
+    /// rather than the visual abbreviation ("Auj.").
+    private var accessibilityValueText: String {
+        guard let date else { return "aucune" }
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "aujourd’hui" }
+        if calendar.isDateInTomorrow(date) { return "demain" }
+        return date.formatted(.dateTime.day().month(.wide))
     }
 
     private var popoverContent: some View {

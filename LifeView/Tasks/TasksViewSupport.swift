@@ -18,6 +18,7 @@ struct CompletedToggle: View {
         .buttonStyle(.borderless)
         .help(showsCompleted ? "Masquer les tâches terminées" : "Afficher les tâches terminées")
         .accessibilityLabel(showsCompleted ? "Masquer les tâches terminées" : "Afficher les tâches terminées")
+        .accessibilityAddTraits(showsCompleted ? [.isButton, .isSelected] : .isButton)
     }
 }
 
@@ -39,7 +40,7 @@ struct RefreshButton: View {
         .buttonStyle(.borderless)
         .disabled(isRefreshing)
         .help("Rafraîchir")
-        .accessibilityLabel("Rafraîchir")
+        .accessibilityLabel(isRefreshing ? "Rafraîchissement en cours" : "Rafraîchir")
     }
 }
 
@@ -53,8 +54,10 @@ struct EmptyState: View {
             Image(systemName: icon)
                 .font(.title)
                 .foregroundStyle(Palette.textSecondary)
+                .accessibilityHidden(true)
             Text(title)
                 .font(.headline)
+                .accessibilityAddTraits(.isHeader)
             Text(message)
                 .font(Typography.callout)
                 .foregroundStyle(Palette.textSecondary)
@@ -62,6 +65,7 @@ struct EmptyState: View {
         }
         .padding(Spacing.md)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -74,11 +78,13 @@ struct ErrorState: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.title)
                 .foregroundStyle(Palette.warning)
+                .accessibilityHidden(true)
             Text(message)
                 .font(Typography.callout)
                 .multilineTextAlignment(.center)
             Button("Réessayer", action: retry)
                 .controlSize(.small)
+                .accessibilityHint("Recharge les données")
         }
         .padding(Spacing.md)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
