@@ -21,6 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cache: OfflineCacheStore?
     private var syncCoordinator: OfflineSyncCoordinator?
     private var accountsObserverTask: Task<Void, Never>?
+    private var notificationsCoordinator: NotificationsCoordinator?
+    private var notificationFocusObserverTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_: Notification) {
         // Hide the dock icon. We rely on `LSUIElement = true` in Info.plist as
@@ -37,45 +39,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let offlineCache = Self.makeOfflineCache()
         cache = offlineCache
 
-        // Build the drainer + sync coordinator only when the cache is
-        // available. If the cache failed to open (rare — disk full, FS
-        // permission edge case) the app degrades gracefully to the
-        // online-only behaviour we shipped through P6.5.
-        var coordinator: OfflineSyncCoordinator?
-        if let offlineCache {
-            let executor = GoogleTasksWriteExecutor(
-                clientLookup: { [weak registry] id in
-                    guard let registry else {
-                        // The registry has been torn down; return a
-                        // throwaway client. The executor will throw on
-                        // its first call and the drainer treats that
-                        // as transient — the queue stays put for the
-                        // next session.
-                        return GoogleTasksClient(authorizing: AccountStoreTasksAdapter(store: store, accountID: id))
-                    }
-                    return registry.client(for: id)
-                }
-            )
-            let networkMonitor = NetworkPathMonitor()
-            let drainer = WriteQueueDrainer(cache: offlineCache, executor: executor)
-            let coord = OfflineSyncCoordinator(networkMonitor: networkMonitor, drainer: drainer)
-            coordinator = coord
-            syncCoordinator = coord
-            coord.start()
-        }
-
-        let accountsVM = AccountsViewModel(
-            store: store,
-            signInService: signInService,
-            sessions: registry
-        )
+        let coordinator = buildSyncCoordinator(cache: offlineCache, registry: registry, store: store)
+        let accountsVM = AccountsViewModel(store: store, signInService: signInService, sessions: registry)
         accountsViewModel = accountsVM
+        let tasksVM = buildTasksViewModel(
+            registry: registry, accountsVM: accountsVM,
+            offlineCache: offlineCache, coordinator: coordinator
+        )
+        tasksViewModel = tasksVM
+        startAccountsObserver(accountsVM: accountsVM, coordinator: coordinator)
+        let notifications = installNotifications(tasksVM: tasksVM)
 
-        // The tasks view-model needs to translate AccountIDs into the
-        // matching Account profile for headers in the aggregated view.
-        // Closure captures `accountsVM` weakly to avoid a retain cycle
-        // — both view-models live for the app's lifetime so weak is safe.
-        let tasksVM = TasksViewModel(
+        let controller = PanelController(
+            accountsViewModel: accountsVM,
+            tasksViewModel: tasksVM,
+            syncCoordinator: coordinator,
+            notificationsCoordinator: notifications
+        )
+        panelController = controller
+        statusBarController = StatusBarController { [weak controller] in controller?.toggle() }
+        registerHotKey(combo: HotKeyStore.load())
+
+        // Forward notification taps: open the panel and ask the
+        // view-model to focus the matching row.
+        notificationFocusObserverTask = Task { [weak self] in
+            await self?.observeNotificationFocus()
+        }
+    }
+
+    /// Builds the offline-sync coordinator if a cache is available.
+    /// Returns nil — and lets the app degrade to online-only — if the
+    /// cache failed to open at startup.
+    private func buildSyncCoordinator(
+        cache offlineCache: OfflineCacheStore?,
+        registry: AccountSessionRegistry,
+        store: AccountStore
+    ) -> OfflineSyncCoordinator? {
+        guard let offlineCache else { return nil }
+        let executor = GoogleTasksWriteExecutor(
+            clientLookup: { [weak registry] id in
+                guard let registry else {
+                    return GoogleTasksClient(authorizing: AccountStoreTasksAdapter(store: store, accountID: id))
+                }
+                return registry.client(for: id)
+            }
+        )
+        let drainer = WriteQueueDrainer(cache: offlineCache, executor: executor)
+        let coord = OfflineSyncCoordinator(networkMonitor: NetworkPathMonitor(), drainer: drainer)
+        syncCoordinator = coord
+        coord.start()
+        return coord
+    }
+
+    private func buildTasksViewModel(
+        registry: AccountSessionRegistry,
+        accountsVM: AccountsViewModel,
+        offlineCache: OfflineCacheStore?,
+        coordinator: OfflineSyncCoordinator?
+    ) -> TasksViewModel {
+        TasksViewModel(
             sessions: registry,
             accountLookup: { [weak accountsVM] id in
                 accountsVM?.accounts.first(where: { $0.id == id })
@@ -83,45 +105,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             cache: offlineCache,
             syncCoordinator: coordinator
         )
-        tasksViewModel = tasksVM
+    }
 
-        if let coordinator {
-            // Push the known accounts into the coordinator so an initial
-            // queue from the previous session drains as soon as we're
-            // online. Re-pushes on every snapshot change keep the set
-            // current with sign-ins / sign-outs.
-            accountsObserverTask = Task { [weak accountsVM, weak coordinator] in
-                guard let accountsVM else { return }
-                while !Task.isCancelled {
-                    let ids = accountsVM.accounts.map(\.id)
-                    coordinator?.updateKnownAccounts(ids)
-                    // Cheap poll — the snapshot stream is internal to
-                    // AccountsViewModel; mirroring it via Observation
-                    // would couple the delegate to SwiftUI internals.
-                    try? await Task.sleep(for: .seconds(2))
-                }
+    private func startAccountsObserver(accountsVM: AccountsViewModel, coordinator: OfflineSyncCoordinator?) {
+        guard let coordinator else { return }
+        accountsObserverTask = Task { [weak accountsVM, weak coordinator] in
+            guard let accountsVM else { return }
+            while !Task.isCancelled {
+                let ids = accountsVM.accounts.map(\.id)
+                coordinator?.updateKnownAccounts(ids)
+                try? await Task.sleep(for: .seconds(2))
             }
         }
+    }
 
-        let controller = PanelController(
-            accountsViewModel: accountsVM,
-            tasksViewModel: tasksVM,
-            syncCoordinator: coordinator
-        )
-        panelController = controller
-
-        statusBarController = StatusBarController { [weak controller] in
-            controller?.toggle()
-        }
-
-        registerHotKey(combo: HotKeyStore.load())
+    /// Wires the notifications stack: scheduler + UN delegate + view-
+    /// model bridge. Returns the coordinator so the panel can bind to
+    /// it.
+    private func installNotifications(tasksVM: TasksViewModel) -> NotificationsCoordinator {
+        let notifications = NotificationsCoordinator(tasksViewModel: tasksVM)
+        notificationsCoordinator = notifications
+        tasksVM.attach(notificationsCoordinator: notifications)
+        notifications.start()
+        return notifications
     }
 
     func applicationWillTerminate(_: Notification) {
         accountsViewModel?.tearDown()
         accountsObserverTask?.cancel()
         accountsObserverTask = nil
+        notificationFocusObserverTask?.cancel()
+        notificationFocusObserverTask = nil
+        notificationsCoordinator?.stop()
         hotKey = nil
+    }
+
+    // MARK: - Notification tap → panel focus
+
+    /// Loops on the `pendingFocus` observable, opening the panel and
+    /// asking the view-model to focus the matching task on every tap.
+    /// Runs for the app's lifetime; cancelled on terminate.
+    private func observeNotificationFocus() async {
+        guard let coordinator = notificationsCoordinator else { return }
+        while !Task.isCancelled {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                withObservationTracking {
+                    _ = coordinator.pendingFocus
+                } onChange: {
+                    continuation.resume()
+                }
+            }
+            guard let request = coordinator.pendingFocus,
+                  let tasksVM = tasksViewModel,
+                  let panel = panelController else { continue }
+            coordinator.pendingFocus = nil
+            panel.show()
+            await tasksVM.focusTask(
+                accountID: request.accountID,
+                listID: request.listID,
+                taskID: request.taskID
+            )
+        }
     }
 
     /// Builds the offline cache anchored under Application Support.

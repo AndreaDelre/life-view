@@ -24,7 +24,8 @@ final class PanelController {
     init(
         accountsViewModel: AccountsViewModel,
         tasksViewModel: TasksViewModel,
-        syncCoordinator: OfflineSyncCoordinator? = nil
+        syncCoordinator: OfflineSyncCoordinator? = nil,
+        notificationsCoordinator: NotificationsCoordinator? = nil
     ) {
         // Start with a placeholder frame; real geometry is computed at open time.
         let initialFrame = NSRect(x: 0, y: 0, width: Self.panelWidth, height: 600)
@@ -42,7 +43,8 @@ final class PanelController {
                 accountsViewModel: accountsViewModel,
                 tasksViewModel: tasksViewModel,
                 environment: environment,
-                syncCoordinator: syncCoordinator
+                syncCoordinator: syncCoordinator,
+                notificationsCoordinator: notificationsCoordinator
             )
         )
         panel.onEscape = { [weak self] in

@@ -21,6 +21,9 @@ struct PanelContentView: View {
     /// "sync in progress" indicator. Absent in tests where we don't
     /// build the cache stack.
     var syncCoordinator: OfflineSyncCoordinator?
+    /// Optional: when present, the panel header exposes the
+    /// notifications opt-in popover. Absent in tests / previews.
+    var notificationsCoordinator: NotificationsCoordinator?
 
     @State private var showsHelp: Bool = false
 
@@ -95,6 +98,9 @@ struct PanelContentView: View {
             Spacer()
             if let syncCoordinator {
                 OfflineIndicatorView(coordinator: syncCoordinator)
+            }
+            if let notificationsCoordinator {
+                NotificationsToggleButton(coordinator: notificationsCoordinator)
             }
             helpButton
         }
