@@ -135,6 +135,12 @@ extension TasksViewModel {
                 items.remove(at: idx)
             }
         }
+        // Cancel any pending due-date notification for the completed
+        // task. Re-opening (needsAction) will be re-scheduled by the
+        // coordinator's observation tick.
+        if isCompleted {
+            notifyTaskClosed(accountID: accountID, listID: listID, taskID: taskID)
+        }
         // Pending local inserts (server ID not yet assigned) collapse
         // into the queued `.createTask` draft instead of enqueuing a
         // separate `.completeTask` behind it. No network call — the
@@ -220,6 +226,12 @@ extension TasksViewModel {
             items.remove(at: idx)
         }
         guard let beforeTask, let beforeIndex else { return }
+        // Cancel any pending due-date notification. The reload path
+        // would catch up eventually, but cancelling here removes the
+        // entry before the next observation tick — important for the
+        // case where the user deletes a task whose `due` is about to
+        // fire.
+        notifyTaskClosed(accountID: accountID, listID: listID, taskID: taskID)
 
         // Pending local inserts: the row has never existed server-side,
         // so the delete is just "drop the queued create + take the
