@@ -22,6 +22,7 @@ struct AccountsBarView: View {
             allAccountsToggle
             avatarStrip
             Spacer(minLength: 0)
+            singleLayoutToggle
             addButton
         }
         .alert(
@@ -80,6 +81,30 @@ struct AccountsBarView: View {
             .accessibilityLabel(viewModel.mode == .all ? "Désactiver la vue tous comptes" : "Vue tous comptes")
             .accessibilityAddTraits(viewModel.mode == .all ? [.isButton, .isSelected] : .isButton)
             .accessibilityHint("Bascule entre l’affichage d’un compte unique et la vue agrégée")
+        }
+    }
+
+    /// Layout sub-toggle for `.single` mode: switch between the
+    /// historical "one selected list at a time" and "every list of this
+    /// account at once, collapsible" view. Hidden when no profile is
+    /// selected or when the aggregate `.all` mode is active — the all-
+    /// accounts view already renders every list of every account.
+    @ViewBuilder
+    private var singleLayoutToggle: some View {
+        if viewModel.mode == .single, viewModel.selectedID != nil {
+            let isAllLists = viewModel.singleLayout == .allLists
+            Button {
+                viewModel.setSingleLayout(isAllLists ? .oneList : .allLists)
+            } label: {
+                Image(systemName: isAllLists ? "square.stack.fill" : "square.stack")
+                    .symbolRenderingMode(.hierarchical)
+                    .frame(width: IconSize.md, height: IconSize.md)
+            }
+            .buttonStyle(.borderless)
+            .help(isAllLists ? "Afficher une seule liste" : "Afficher toutes les listes")
+            .accessibilityLabel(isAllLists ? "Vue une liste" : "Vue toutes les listes")
+            .accessibilityAddTraits(isAllLists ? [.isButton, .isSelected] : .isButton)
+            .accessibilityHint("Bascule entre l’affichage d’une seule liste et de toutes les listes du compte sélectionné")
         }
     }
 

@@ -19,10 +19,16 @@ struct AccountSectionView: View {
     let section: TasksViewModel.AccountSection
     @Bindable var viewModel: TasksViewModel
     let editingBinding: (String) -> Binding<Bool>
+    /// Skipped when the parent renders a single account (the bar already
+    /// shows which profile is selected — repeating the avatar + name +
+    /// email would only add clutter).
+    var showsHeader: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
-            header
+            if showsHeader {
+                header
+            }
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 ForEach(section.slices) { slice in
                     ListSliceView(
@@ -79,15 +85,35 @@ struct ListSliceView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
+        VStack(alignment: .leading, spacing: 0) {
             sectionHeader
-            if !isCollapsed {
-                content
-                    .padding(.leading, Spacing.xs)
-                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
+            // Inner wrapper is the clip region: as the VStack collapses,
+            // the `.move(edge: .top)` transition slides the content up
+            // and the wrapper's `.clipped()` hides everything that
+            // crosses its top edge — so the tasks disappear *behind*
+            // the header instead of fading over it. Outer spacing is
+            // 0 (top padding lives on the content) so the closed state
+            // doesn't leave a phantom gap below the header.
+            //
+            // The animation itself is driven by `withAnimation` inside
+            // the chevron button (see `sectionHeader`), NOT by an
+            // `.animation(value:)` modifier here. A local modifier
+            // would animate only this view's subtree — leaving the
+            // surrounding `AccountSectionView` VStack to snap the
+            // sibling slices upward while these tasks are still
+            // sliding. `withAnimation` opens a single transaction that
+            // covers both this slice's transition and the parent's
+            // reflow, so everything moves in lockstep.
+            VStack(alignment: .leading, spacing: 0) {
+                if !isCollapsed {
+                    content
+                        .padding(.leading, Spacing.xs)
+                        .padding(.top, Spacing.xs)
+                        .transition(reduceMotion ? .opacity : .move(edge: .top))
+                }
             }
+            .clipped()
         }
-        .animation(reduceMotion ? Motion.reduced : Motion.standard, value: isCollapsed)
     }
 
     /// Top header row: chevron + title + count chip. Tapping anywhere
@@ -96,7 +122,14 @@ struct ListSliceView: View {
     /// VoiceOver semantics (button + expanded/collapsed state).
     private var sectionHeader: some View {
         Button {
-            isCollapsed.toggle()
+            // Wrap the mutation in `withAnimation` so the same
+            // transaction drives both the local `.move(edge: .top)`
+            // transition AND the parent VStack's reflow of sibling
+            // slices. Without it the parent's layout change wouldn't
+            // be in any animation scope and would snap.
+            withAnimation(reduceMotion ? Motion.reduced : Motion.standard) {
+                isCollapsed.toggle()
+            }
         } label: {
             HStack(spacing: Spacing.sm) {
                 Image(systemName: "chevron.down")

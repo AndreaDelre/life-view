@@ -20,9 +20,20 @@ final class AccountsViewModel {
         case all
     }
 
+    /// Sub-layout used inside `.single` mode: either the historical
+    /// "one selected list with its tasks" or "every list of this account
+    /// at once, each collapsible" (the same renderer as `.all` mode,
+    /// limited to the single selected account). Persisted to UserDefaults
+    /// so the panel reopens in the user's last-chosen layout.
+    enum SingleLayout: String, CaseIterable, Sendable, Codable {
+        case oneList
+        case allLists
+    }
+
     private(set) var accounts: [Account] = []
     private(set) var selectedID: AccountID?
     private(set) var mode: DisplayMode
+    private(set) var singleLayout: SingleLayout
     private(set) var isLoaded: Bool = false
     private(set) var isWorking: Bool = false
     private(set) var errorMessage: String?
@@ -35,6 +46,7 @@ final class AccountsViewModel {
     private var subscriptionTask: Task<Void, Never>?
 
     private static let modeKey = "AccountsViewModel.displayMode"
+    private static let singleLayoutKey = "AccountsViewModel.singleLayout"
 
     init(
         store: AccountStore,
@@ -48,6 +60,8 @@ final class AccountsViewModel {
         self.preferences = preferences
         let raw = preferences.string(forKey: Self.modeKey) ?? DisplayMode.single.rawValue
         self.mode = DisplayMode(rawValue: raw) ?? .single
+        let rawLayout = preferences.string(forKey: Self.singleLayoutKey) ?? SingleLayout.oneList.rawValue
+        self.singleLayout = SingleLayout(rawValue: rawLayout) ?? .oneList
     }
 
     // No `deinit` cancellation here: under Swift 6 strict concurrency,
@@ -159,6 +173,12 @@ final class AccountsViewModel {
         guard next != mode else { return }
         mode = next
         preferences.set(next.rawValue, forKey: Self.modeKey)
+    }
+
+    func setSingleLayout(_ next: SingleLayout) {
+        guard next != singleLayout else { return }
+        singleLayout = next
+        preferences.set(next.rawValue, forKey: Self.singleLayoutKey)
     }
 
     func clearError() {
