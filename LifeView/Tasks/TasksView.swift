@@ -5,27 +5,54 @@ import SwiftUI
 ///
 /// Two rendering paths driven by ``TasksViewModel/state``:
 ///
-/// - Single mode: list picker on top, scrollable tasks below — same shape
-///   as P3 plus account context.
+/// - Single mode: list picker on top, new-task capture row, scrollable
+///   tasks below.
 /// - All-accounts mode: a single scrollable view with one section per
 ///   account, each section listing every list with its tasks underneath.
 struct TasksView: View {
     @Bindable var viewModel: TasksViewModel
+    @State private var newTaskTitle: String = ""
+    @State private var newTaskDue: Date?
+    @FocusState private var newTaskFieldFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             switch viewModel.state {
             case .idle, .loading:
                 loadingPlaceholder
-            case .error(let message):
+            case let .error(message):
                 ErrorState(message: message) { Task { await viewModel.refresh() } }
-            case .singleLoaded(let payload):
+            case let .singleLoaded(payload):
                 singleContent(payload)
-            case .allLoaded(let sections):
+            case let .allLoaded(sections):
                 allContent(sections)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            // Hidden ⌘N shortcut: focuses the new-task field when in
+            // single mode. Lives on the root view so it's active
+            // regardless of which sub-view has focus.
+            Button("Nouvelle tâche", action: focusNewTaskField)
+                .keyboardShortcut("n", modifiers: .command)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        )
+    }
+
+    private func focusNewTaskField() {
+        guard case .singleLoaded = viewModel.state else { return }
+        newTaskFieldFocused = true
+    }
+
+    private func submitNewTask() {
+        guard viewModel.createTask(title: newTaskTitle, due: newTaskDue) else { return }
+        newTaskTitle = ""
+        newTaskDue = nil
+        // Keep focus so the user can keep typing additional tasks
+        // without re-pressing ⌘N or clicking the field.
+        newTaskFieldFocused = true
     }
 
     // MARK: - Single mode
@@ -41,6 +68,13 @@ struct TasksView: View {
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 singleToolbar(payload)
+                Divider()
+                NewTaskRow(
+                    title: $newTaskTitle,
+                    due: $newTaskDue,
+                    fieldFocused: $newTaskFieldFocused,
+                    onSubmit: submitNewTask
+                )
                 Divider()
                 singleTasksSection(payload)
             }
@@ -80,9 +114,9 @@ struct TasksView: View {
         case .loading:
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .error(let message):
+        case let .error(message):
             ErrorState(message: message) { Task { await viewModel.refresh() } }
-        case .loaded(let tasks):
+        case let .loaded(tasks):
             if tasks.isEmpty {
                 EmptyState(
                     icon: "checkmark.seal",
@@ -196,14 +230,16 @@ private struct ListSliceView: View {
                 .padding(.leading, 4)
             switch slice.tasksState {
             case .loading:
-                HStack { ProgressView().controlSize(.small); Spacer() }
-                    .padding(.leading, 4)
-            case .error(let message):
+                HStack { ProgressView().controlSize(.small)
+                    Spacer()
+                }
+                .padding(.leading, 4)
+            case let .error(message):
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.leading, 4)
-            case .loaded(let tasks):
+            case let .loaded(tasks):
                 if tasks.isEmpty {
                     Text("—")
                         .font(.caption)
