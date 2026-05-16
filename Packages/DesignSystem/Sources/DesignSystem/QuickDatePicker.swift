@@ -25,14 +25,14 @@ public struct QuickDatePicker: View {
         Button {
             popoverOpen.toggle()
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 Image(systemName: "calendar")
                     .imageScale(.small)
                 Text(buttonLabel)
-                    .font(.caption)
+                    .font(Typography.caption)
                     .lineLimit(1)
             }
-            .foregroundStyle(date == nil ? Color.secondary : Color.primary)
+            .foregroundStyle(date == nil ? Palette.textSecondary : Palette.textPrimary)
         }
         .buttonStyle(.plain)
         .help("Date d'échéance")
@@ -43,8 +43,8 @@ public struct QuickDatePicker: View {
     }
 
     private var popoverContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            HStack(spacing: Spacing.sm) {
                 presetButton("Aujourd'hui") {
                     date = QuickDatePresets.today()
                     popoverOpen = false
@@ -58,7 +58,7 @@ public struct QuickDatePicker: View {
                     popoverOpen = false
                 }
             }
-            HStack(spacing: 6) {
+            HStack(spacing: Spacing.sm) {
                 presetButton("Aucune", emphasised: date == nil) {
                     date = nil
                     popoverOpen = false
@@ -75,7 +75,7 @@ public struct QuickDatePicker: View {
             .datePickerStyle(.graphical)
             .frame(maxWidth: .infinity)
         }
-        .padding(12)
+        .padding(Spacing.md)
         // The graphical DatePicker expands to fill its container width;
         // pinning the popover width keeps the layout stable so the
         // calendar grid takes the whole available space instead of
@@ -105,6 +105,6 @@ public struct QuickDatePicker: View {
         Button(label, action: action)
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .tint(emphasised ? Color.accentColor : Color.gray)
+            .tint(emphasised ? Palette.accent : Palette.textSecondary)
     }
 }
