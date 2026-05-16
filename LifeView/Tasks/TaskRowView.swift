@@ -47,6 +47,7 @@ struct TaskRowView: View {
             if isPending {
                 ProgressView()
                     .controlSize(.small)
+                    .accessibilityLabel("Synchronisation en cours")
             }
         }
         .padding(.vertical, Spacing.xs)
@@ -81,7 +82,29 @@ struct TaskRowView: View {
                 Label("Supprimer", systemImage: "trash")
             }
         }
-        .accessibilityElement(children: .combine)
+        // Combine the row into a single VoiceOver element so the user
+        // hears "Acheter du pain, à faire, échéance demain" in one
+        // utterance rather than five separate stops. We override the
+        // label/value/hint/traits manually because `.combine` would
+        // otherwise concatenate the checkbox button label + title +
+        // due caption into an awkward stream.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityRowLabel)
+        .accessibilityValue(accessibilityRowValue)
+        .accessibilityHint(isPending ? "Synchronisation en cours" : "Utilise le menu d’actions pour modifier")
+        .accessibilityAddTraits(task.status == .completed ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction(named: task.status == .completed ? "Marquer à faire" : "Marquer terminée") {
+            guard !isPending else { return }
+            onToggleCompletion(task.status != .completed)
+        }
+        .accessibilityAction(named: "Renommer") {
+            guard !isPending else { return }
+            isEditing = true
+        }
+        .accessibilityAction(named: "Supprimer") {
+            guard !isPending else { return }
+            onDelete()
+        }
     }
 
     private var checkbox: some View {
@@ -96,7 +119,33 @@ struct TaskRowView: View {
         }
         .buttonStyle(.plain)
         .disabled(isPending)
-        .accessibilityLabel(task.status == .completed ? "Marquer comme à faire" : "Marquer terminée")
+        // Hidden from VoiceOver because the parent row aggregates the
+        // toggle into a custom action (and the row itself is a button).
+        // Leaving the checkbox visible would produce a redundant
+        // "Marquer terminée, bouton" stop inside the row element.
+        .accessibilityHidden(true)
+    }
+
+    // MARK: - Accessibility
+
+    /// Sentence read by VoiceOver when it lands on the row. Format:
+    /// `"<titre>"` — keeping the title alone as the label lets VoiceOver
+    /// announce `"<titre>, terminée, échéance demain, bouton"` by
+    /// composing the label with `accessibilityValue` and the traits
+    /// added above.
+    private var accessibilityRowLabel: String {
+        task.title.isEmpty ? "Tâche sans titre" : task.title
+    }
+
+    /// Composite value: status (à faire / terminée) + due date if any.
+    /// Joined with ", " so VoiceOver inserts a natural pause between
+    /// the two pieces of information.
+    private var accessibilityRowValue: String {
+        var parts: [String] = [task.status == .completed ? "terminée" : "à faire"]
+        if let due = task.due {
+            parts.append("échéance \(formatDue(due))")
+        }
+        return parts.joined(separator: ", ")
     }
 
     private var titleView: some View {
