@@ -309,11 +309,54 @@ struct TasksView: View {
         return .handled
     }
 
+    /// One row inside the single-mode `List`. Extracted from
+    /// ``singleTasksList(tasks:accountID:listID:)`` so the parent stays
+    /// within SwiftLint's function-body budget — every captured value
+    /// is already a local, so the split is purely syntactic.
+    private func singleTaskRow(
+        entry: TaskHierarchyEntry,
+        accountID: AccountID,
+        listID: String
+    ) -> some View {
+        TaskRowView(
+            task: entry.task,
+            isPending: viewModel.isPending(taskID: entry.task.id),
+            depth: entry.depth,
+            totalSubtasks: entry.totalSubtasks,
+            completedSubtasks: entry.completedSubtasks,
+            isEditing: editingBinding(for: entry.task.id),
+            onToggleCompletion: { isCompleted in
+                viewModel.setCompletion(isCompleted, for: entry.task.id, in: listID, account: accountID)
+            },
+            onEditTitle: { newTitle in
+                viewModel.editTaskTitle(newTitle, for: entry.task.id, in: listID, account: accountID)
+            },
+            onDelete: {
+                viewModel.deleteTask(taskID: entry.task.id, in: listID, account: accountID)
+            }
+        )
+        .tag(entry.task.id)
+        .listRowSeparator(.visible)
+        // Block drag on sub-tasks: the move API needs a `parent`
+        // argument to keep the row attached to its parent, and the
+        // cross-level promote/demote UX is a separate issue. Leaving
+        // the handle active would let a drop end up at root level and
+        // silently flatten the hierarchy.
+        .moveDisabled(entry.depth > 0)
+    }
+
     private func singleTasksList(
         tasks: [TaskItem],
         accountID: AccountID,
         listID: String
     ) -> some View {
+        // Flatten the parent/child hierarchy into one annotated array.
+        // The order is preserved (Google Tasks returns sub-tasks already
+        // interleaved by `position`) so a top-level `List`/`ForEach`
+        // still walks the rows in the right order — we only add the
+        // `depth` + sub-task counters that the row needs to render
+        // itself.
+        let entries = TaskHierarchy.entries(for: tasks)
         // Single-mode uses `List` (for native selection + swipe + keyboard
         // handling), which doesn't honour per-row `.transition(...)`
         // modifiers — it has its own insert/remove choreography. We
@@ -322,24 +365,9 @@ struct TasksView: View {
         // `List` actually observes to schedule its built-in
         // fade/slide. The aggregated mode below, which uses
         // `LazyVStack`, can apply the richer custom `.transition`.
-        List(selection: $selectedTaskID) {
-            ForEach(tasks) { task in
-                TaskRowView(
-                    task: task,
-                    isPending: viewModel.isPending(taskID: task.id),
-                    isEditing: editingBinding(for: task.id),
-                    onToggleCompletion: { isCompleted in
-                        viewModel.setCompletion(isCompleted, for: task.id, in: listID, account: accountID)
-                    },
-                    onEditTitle: { newTitle in
-                        viewModel.editTaskTitle(newTitle, for: task.id, in: listID, account: accountID)
-                    },
-                    onDelete: {
-                        viewModel.deleteTask(taskID: task.id, in: listID, account: accountID)
-                    }
-                )
-                .tag(task.id)
-                .listRowSeparator(.visible)
+        return List(selection: $selectedTaskID) {
+            ForEach(entries) { entry in
+                singleTaskRow(entry: entry, accountID: accountID, listID: listID)
             }
             // Drag-to-reorder. `.onMove` is only honored on `ForEach`
             // *inside* a `List` on macOS — it wires up the native drag

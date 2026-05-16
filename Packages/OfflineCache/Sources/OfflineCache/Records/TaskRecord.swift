@@ -15,6 +15,7 @@ struct TaskRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
     var status: String
     var due: Date?
     var position: String
+    var parent: String?
 
     init(accountID: AccountID, listID: String, task: TaskItem) {
         self.accountID = accountID.rawValue
@@ -25,6 +26,7 @@ struct TaskRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
         status = task.status.rawValue
         due = task.due
         position = task.position
+        parent = task.parent
     }
 
     var domain: TaskItem? {
@@ -35,7 +37,8 @@ struct TaskRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
             notes: notes,
             status: status,
             due: due,
-            position: position
+            position: position,
+            parent: parent
         )
     }
 }

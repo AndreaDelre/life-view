@@ -146,6 +146,28 @@ final class GoogleTasksClientTests: XCTestCase {
         XCTAssertEqual(tasks.map(\.id), ["good"])
     }
 
+    func testFetchTasksMapsParentForSubtasks() async throws {
+        // Google Tasks returns a `parent` field on sub-tasks. The
+        // domain ``TaskItem.parent`` round-trips that ID so the UI can
+        // render the hierarchy.
+        let bodyJSON = """
+        {
+          "items": [
+            {"id":"p1","title":"Parent","status":"needsAction","position":"00000000000000000001"},
+            {"id":"c1","title":"Child", "status":"needsAction","position":"00000000000000000002","parent":"p1"}
+          ]
+        }
+        """
+        let client = GoogleTasksClient(
+            authorizing: StubTasksAuthorizing(),
+            http: StubTasksHTTPClient([.success(statusCode: 200, body: Data(bodyJSON.utf8))])
+        )
+
+        let tasks = try await client.fetchTasks(in: "list-1")
+        XCTAssertEqual(tasks.first(where: { $0.id == "p1" })?.parent, nil)
+        XCTAssertEqual(tasks.first(where: { $0.id == "c1" })?.parent, "p1")
+    }
+
     func testFetchTasksMapsCompletedStatus() async throws {
         let body = #"""
         {"items":[{"id":"x","title":"done","status":"completed","position":"00000000000000000001"}]}

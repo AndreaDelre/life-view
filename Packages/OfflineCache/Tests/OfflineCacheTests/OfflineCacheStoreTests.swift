@@ -65,6 +65,26 @@ final class OfflineCacheStoreTests: XCTestCase {
         XCTAssertEqual(loaded.map(\.id), ["t1", "t2", "t3"])
     }
 
+    func test_saveAndLoadTasks_preservesParentForSubtasks() async throws {
+        // Sub-task hierarchy must survive the cache round-trip so the
+        // UI can render the indent + guide line when offline.
+        let store = try await makeStore()
+        let tasks = [
+            TaskItem(id: "p1", title: "Parent", status: .needsAction, position: "00000000000000000001"),
+            TaskItem(
+                id: "c1",
+                title: "Child",
+                status: .needsAction,
+                position: "00000000000000000002",
+                parent: "p1"
+            )
+        ]
+        try await store.saveTasks(tasks, listID: "list-1", accountID: accountA)
+        let loaded = try await store.loadTasks(listID: "list-1", accountID: accountA)
+        XCTAssertEqual(loaded.first(where: { $0.id == "p1" })?.parent, nil)
+        XCTAssertEqual(loaded.first(where: { $0.id == "c1" })?.parent, "p1")
+    }
+
     func test_upsertTask_replacesExisting() async throws {
         let store = try await makeStore()
         let initial = TaskItem(id: "t1", title: "Old", status: .needsAction, position: "p")

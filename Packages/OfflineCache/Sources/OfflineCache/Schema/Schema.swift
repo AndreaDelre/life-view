@@ -63,6 +63,15 @@ enum CacheSchema {
             )
         }
 
+        // Adds the `parent` column to `tasks`. NULL for top-level tasks,
+        // contains the parent task ID for sub-tasks — used by the UI to
+        // render hierarchy (indent + visual guide).
+        migrator.registerMigration("v2-tasks-parent") { db in
+            try db.alter(table: "tasks") { table in
+                table.add(column: "parent", .text)
+            }
+        }
+
         return migrator
     }
 }
