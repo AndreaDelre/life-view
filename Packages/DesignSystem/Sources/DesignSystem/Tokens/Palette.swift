@@ -46,6 +46,14 @@ public enum Palette {
     /// — same behaviour as a `List` selection or a Finder row.
     public static let surfaceSelected = Color(nsColor: .selectedContentBackgroundColor)
 
+    /// Neutral row-selected tint — stronger than ``surfaceHover`` but
+    /// still derived from `.labelColor` so it never picks up the macOS
+    /// accent blue. Used by `TaskRowView` so a clicked row reads as
+    /// "selected" without flooding the panel with the system accent.
+    /// Alpha sits between the hover step (0.10) and a full row fill so
+    /// hover → selected stays a perceivable step up.
+    public static let surfaceRowSelected = Color(nsColor: .labelColor).opacity(0.16)
+
     /// Soft tint used to highlight a warning chip / banner without
     /// hijacking the whole row. Derived from `.systemOrange` so it
     /// follows the system warm-warning hue in both modes. Bumped from

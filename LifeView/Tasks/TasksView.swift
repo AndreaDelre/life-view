@@ -253,6 +253,7 @@ struct TasksView: View {
             totalSubtasks: entry.totalSubtasks,
             completedSubtasks: entry.completedSubtasks,
             isEditing: editingBinding(for: entry.task.id),
+            isSelected: selectedTaskID == entry.task.id,
             onToggleCompletion: { isCompleted in
                 viewModel.setCompletion(isCompleted, for: entry.task.id, in: listID, account: accountID)
             },
@@ -265,6 +266,11 @@ struct TasksView: View {
         )
         .tag(entry.task.id)
         .listRowSeparator(.visible)
+        // Suppress List's native blue selection bar — the row paints
+        // its own neutral tint via `TaskRowView.isSelected`, which we
+        // already thread above. Without this, the system accent would
+        // flood the row on click.
+        .listRowBackground(Color.clear)
         // Block drag on sub-tasks: the move API needs a `parent`
         // argument to keep the row attached to its parent, and the
         // cross-level promote/demote UX is a separate issue. Leaving
