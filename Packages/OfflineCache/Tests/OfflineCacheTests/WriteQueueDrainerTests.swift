@@ -156,19 +156,24 @@ final class WriteQueueDrainerTests: XCTestCase {
         // off `self` (XCTestCase is not Sendable).
         let account = accountA
 
-        _ = try await cache.enqueueWrite(
+        let enqueued = try await cache.enqueueWrite(
             accountID: account,
             payload: .deleteTask(listID: "l", taskID: "t1")
         )
 
         async let first = drainer.drain(accountID: account)
         async let second = drainer.drain(accountID: account)
-        let results = await [first, second]
-        // Exactly one of the two saw the queue work; the other was
-        // coalesced into a "already draining" no-op.
-        let completed = results.filter { $0 == .completed(processed: 1, dropped: 0) }.count
-        let skipped = results.filter { $0 == .skippedAlreadyDraining }.count
-        XCTAssertEqual(completed + skipped, 2)
-        XCTAssertEqual(completed, 1)
+        _ = await [first, second]
+
+        // The real invariant of the coalesce path: regardless of whether
+        // the second call lands during the first drain (→ skipped) or
+        // after it (→ completes on an empty queue), the executor must
+        // be invoked **exactly once** for the single queued write.
+        // Asserting on the relative outcomes of the two drains was
+        // timing-sensitive (and flaky on fast CI runners where the
+        // first drain finished before the second one even arrived).
+        XCTAssertEqual(executor.calls, [enqueued.id])
+        let remaining = try await cache.pendingWrites(accountID: account)
+        XCTAssertTrue(remaining.isEmpty)
     }
 }
