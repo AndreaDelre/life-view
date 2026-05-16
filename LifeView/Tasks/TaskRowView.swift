@@ -29,6 +29,7 @@ struct TaskRowView: View {
     let onDelete: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering: Bool = false
 
     /// Per-level indent applied to sub-tasks. Sized so the child's
     /// checkbox sits roughly under the parent's title baseline — same
@@ -67,7 +68,22 @@ struct TaskRowView: View {
         }
         .padding(.leading, indent)
         .background(alignment: .leading) { subtaskGuide }
-        .padding(.vertical, Spacing.xs)
+        .padding(.vertical, Spacing.sm)
+        .padding(.horizontal, Spacing.xs)
+        .background(
+            // Soft hover tint scoped to the row's bounds. Drawn behind
+            // the content with a rounded shape so it reads as a modern
+            // pointer affordance rather than a flat selection bar. We
+            // toggle opacity (not the view's presence) so SwiftUI can
+            // cross-fade the highlight in / out instead of snapping.
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                .fill(Palette.surfaceHover)
+                .opacity(isHovering && !isPending ? 1 : 0)
+        )
+        .animation(reduceMotion ? Motion.reduced : Motion.quick, value: isHovering)
+        .onHover { hovering in
+            isHovering = hovering
+        }
         .opacity(isPending ? 0.55 : 1.0)
         .contentShape(Rectangle())
         .contextMenu {
