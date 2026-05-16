@@ -199,6 +199,113 @@ extension TasksViewModel {
         }
     }
 
+    /// Reorders a task to `newIndex` within `listID` (single-mode drag &
+    /// drop). Applies the move optimistically — the local array is
+    /// reordered immediately and views animate the swap — then enqueues
+    /// a `POST .../tasks/move` keyed by `accountID`. On failure the
+    /// original order is restored and ``lastError`` is set.
+    ///
+    /// `newIndex` follows the same convention as `IndexSet.onMove`'s
+    /// destination: it is the index that the *moved* task occupies in
+    /// the new array. The previous-sibling sent to Google is read off
+    /// the mutated array (`newIndex - 1`) so we don't have to reason
+    /// about whether the user dragged up or down — that's the whole
+    /// pitch of doing the local mutation first.
+    ///
+    /// Notes on local ordering & `position`:
+    /// The local source of truth for sort order after a drag is the
+    /// array index, not ``TaskItem/position`` — Google assigns new
+    /// position strings server-side, and the next ``refresh()`` will
+    /// re-sync them. Until then we deliberately let the array order
+    /// drift away from the (stale) position strings: re-sorting locally
+    /// would undo the user's drag.
+    func moveTask(
+        from sourceIndex: Int,
+        to newIndex: Int,
+        in listID: String,
+        account accountID: AccountID
+    ) {
+        // Capture pre-mutation order for rollback. The optimistic move
+        // is applied through `mutateTaskList`, then we read the new
+        // neighbour off the mutated array.
+        var beforeOrder: [TaskItem]?
+        var movedTaskID: String?
+        var previousID: String?
+        var resolvedNewIndex: Int?
+
+        mutateTaskList(accountID: accountID, listID: listID) { items in
+            guard sourceIndex >= 0, sourceIndex < items.count else { return }
+            beforeOrder = items
+            let moved = items.remove(at: sourceIndex)
+            // `IndexSet.onMove` hands a destination computed against the
+            // *original* array: a drop just after the item at position N
+            // arrives as `newIndex == N + 1`. Once we've removed the
+            // dragged row, the insertion index for items dropped further
+            // down has to be shifted by one. Clamp at both ends to be
+            // safe against an out-of-range destination.
+            let target: Int
+            if newIndex > sourceIndex {
+                target = max(0, min(items.count, newIndex - 1))
+            } else {
+                target = max(0, min(items.count, newIndex))
+            }
+            items.insert(moved, at: target)
+            movedTaskID = moved.id
+            resolvedNewIndex = target
+            previousID = target == 0 ? nil : items[target - 1].id
+        }
+
+        guard let beforeOrder, let movedTaskID, let resolvedNewIndex else { return }
+        // No-op moves (drop on the same spot) avoid a needless network
+        // call — Google would happily accept it but the round-trip is
+        // wasted work.
+        guard resolvedNewIndex != sourceIndex else { return }
+        // Pending local inserts can't be moved server-side until they've
+        // been assigned a real ID. Rollback the optimistic reorder so
+        // the user's drag is silently undone rather than appearing to
+        // succeed and then snapping back on refresh.
+        guard !movedTaskID.hasPrefix("local-") else {
+            mutateTaskList(accountID: accountID, listID: listID) { items in
+                items = beforeOrder
+            }
+            return
+        }
+
+        pendingTaskIDs.insert(movedTaskID)
+        let client = sessions.client(for: accountID)
+        let queue = writeQueue
+        let capturedPrevious = previousID
+        Task { @MainActor [weak self] in
+            do {
+                let moved = try await queue.enqueue(for: accountID) {
+                    try await client.moveTask(
+                        in: listID,
+                        taskID: movedTaskID,
+                        previous: capturedPrevious
+                    )
+                }
+                guard let self else { return }
+                pendingTaskIDs.remove(movedTaskID)
+                // Patch the moved row in-place with the server's
+                // canonical representation (its `position` is now
+                // up-to-date) without re-sorting: the user-driven
+                // array order is the source of truth here.
+                mutateTaskList(accountID: accountID, listID: listID) { items in
+                    if let idx = items.firstIndex(where: { $0.id == movedTaskID }) {
+                        items[idx] = moved
+                    }
+                }
+            } catch {
+                guard let self else { return }
+                pendingTaskIDs.remove(movedTaskID)
+                mutateTaskList(accountID: accountID, listID: listID) { items in
+                    items = beforeOrder
+                }
+                lastError = Self.messageFor(error)
+            }
+        }
+    }
+
     // MARK: - Lists
 
     /// Creates a new task list under the currently-selected account.
