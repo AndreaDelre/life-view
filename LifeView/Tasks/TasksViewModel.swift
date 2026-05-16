@@ -215,6 +215,12 @@ final class TasksViewModel {
         guard payload.lists.contains(where: { $0.id == listID }) else { return }
 
         payload.selectedListID = listID
+        // Explicitly invalidate the visible tasks: `loadTasks` no
+        // longer flashes to `.loading` when it already sees a `.loaded`
+        // payload (that change keeps auto-refresh silent). Without
+        // this reset, the user would briefly see the *previous* list's
+        // tasks under the newly-selected list header.
+        payload.tasksState = .loading
         state = .singleLoaded(payload)
 
         let generation = generation
