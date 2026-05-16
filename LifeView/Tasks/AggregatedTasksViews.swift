@@ -85,13 +85,24 @@ struct ListSliceView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
+        VStack(alignment: .leading, spacing: 0) {
             sectionHeader
-            if !isCollapsed {
-                content
-                    .padding(.leading, Spacing.xs)
-                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
+            // Inner wrapper is the clip region: as the VStack collapses,
+            // the `.move(edge: .top)` transition slides the content up
+            // and the wrapper's `.clipped()` hides everything that
+            // crosses its top edge — so the tasks disappear *behind*
+            // the header instead of fading over it. Outer spacing is
+            // 0 (top padding lives on the content) so the closed state
+            // doesn't leave a phantom gap below the header.
+            VStack(alignment: .leading, spacing: 0) {
+                if !isCollapsed {
+                    content
+                        .padding(.leading, Spacing.xs)
+                        .padding(.top, Spacing.xs)
+                        .transition(reduceMotion ? .opacity : .move(edge: .top))
+                }
             }
+            .clipped()
         }
         .animation(reduceMotion ? Motion.reduced : Motion.standard, value: isCollapsed)
     }
