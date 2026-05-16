@@ -254,12 +254,15 @@ final class NotificationsCoordinator: NSObject {
 
 // MARK: - UNUserNotificationCenterDelegate
 
-// `@preconcurrency` on the conformance: the completion-handler
-// signature of these two delegate methods gained `@Sendable` in the
-// macOS 26 SDK. CI is on Xcode 16.2 (macOS 15.2 SDK) where the
-// requirement is still the plain `@escaping` form, which trips Swift
-// 6 strict concurrency. `@preconcurrency` here lets us satisfy
-// whichever shape the running SDK exposes.
+// The two delegate completion handlers are declared **without**
+// `@Sendable` on purpose. The macOS 26 SDK (Xcode 26) added
+// `@Sendable` to them; the macOS 15.2 SDK on CI (Xcode 16.2) still
+// has the plain `@escaping` form. Function parameters are
+// contravariant for sendability — accepting a non-Sendable closure
+// satisfies a protocol that hands us a Sendable one (we just don't
+// rely on the marker on our side). The opposite (declaring
+// `@Sendable` while the protocol doesn't require it) is what
+// produced the Swift 6 strict-concurrency error on CI.
 extension NotificationsCoordinator: @preconcurrency UNUserNotificationCenterDelegate {
     /// Decides what happens when a notification arrives while the app
     /// is in the foreground. We display a banner + play the sound so
@@ -268,7 +271,7 @@ extension NotificationsCoordinator: @preconcurrency UNUserNotificationCenterDele
     nonisolated func userNotificationCenter(
         _: UNUserNotificationCenter,
         willPresent _: UNNotification,
-        withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         completionHandler([.banner, .sound])
     }
@@ -279,7 +282,7 @@ extension NotificationsCoordinator: @preconcurrency UNUserNotificationCenterDele
     nonisolated func userNotificationCenter(
         _: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
-        withCompletionHandler completionHandler: @escaping @Sendable () -> Void
+        withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
         guard let accountRaw = userInfo[NotificationUserInfoKey.accountID] as? String,
@@ -294,9 +297,16 @@ extension NotificationsCoordinator: @preconcurrency UNUserNotificationCenterDele
             listID: listID,
             taskID: taskID
         )
+        // Call the completion handler synchronously **outside** the
+        // Task so we don't capture it across the actor hop. Without
+        // `@Sendable` on the parameter (dropped to match the
+        // pre-macOS-26 SDK signature), the capture would trigger
+        // "sending …completionHandler risks causing data races" on
+        // the newer compiler. The OS doesn't care about the order —
+        // it just wants the handler invoked exactly once.
+        completionHandler()
         Task { @MainActor [weak self] in
             self?.pendingFocus = request
-            completionHandler()
         }
     }
 }
