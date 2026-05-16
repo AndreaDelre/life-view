@@ -1,4 +1,6 @@
 import Core
+import DesignSystem
+import GoogleAuth
 import SwiftUI
 
 /// Root view of the tasks corner.
@@ -13,10 +15,39 @@ struct TasksView: View {
     @Bindable var viewModel: TasksViewModel
     @State private var newTaskTitle: String = ""
     @State private var newTaskDue: Date?
+    @State private var selectedTaskID: String?
+    @State private var editingTaskID: String?
     @FocusState private var newTaskFieldFocused: Bool
+
+    /// Builds a `Binding<Bool>` for one row's inline-edit state, threading
+    /// through the shared `editingTaskID`. Setting `true` records this
+    /// row as the active editor; setting `false` only clears the editor
+    /// if it was this row (a stale set-false from a different row must
+    /// not steal the lock).
+    private func editingBinding(for taskID: String) -> Binding<Bool> {
+        Binding(
+            get: { editingTaskID == taskID },
+            set: { isEditing in
+                if isEditing {
+                    editingTaskID = taskID
+                } else if editingTaskID == taskID {
+                    editingTaskID = nil
+                }
+            }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let message = viewModel.lastError {
+                ErrorToast(message: message) {
+                    viewModel.dismissError()
+                }
+                .padding(.horizontal, 4)
+                .padding(.top, 4)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
             switch viewModel.state {
             case .idle, .loading:
                 loadingPlaceholder
@@ -28,6 +59,7 @@ struct TasksView: View {
                 allContent(sections)
             }
         }
+        .animation(.easeInOut(duration: 0.18), value: viewModel.lastError)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(
             // Hidden ⌘N shortcut: focuses the new-task field when in
@@ -127,16 +159,76 @@ struct TasksView: View {
                 )
                 .refreshable { await viewModel.refresh() }
             } else {
-                List {
-                    ForEach(tasks) { task in
-                        TaskRowView(task: task)
-                            .listRowSeparator(.visible)
-                    }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .refreshable { await viewModel.refresh() }
+                singleTasksListIfReady(tasks: tasks, payload: payload)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func singleTasksListIfReady(
+        tasks: [TaskItem],
+        payload: TasksViewModel.SinglePayload
+    ) -> some View {
+        if case let .single(accountID) = viewModel.selection,
+           let listID = payload.selectedListID {
+            singleTasksList(tasks: tasks, accountID: accountID, listID: listID)
+        }
+    }
+
+    private func singleTasksList(
+        tasks: [TaskItem],
+        accountID: AccountID,
+        listID: String
+    ) -> some View {
+        List(selection: $selectedTaskID) {
+            ForEach(tasks) { task in
+                TaskRowView(
+                    task: task,
+                    isPending: viewModel.isPending(taskID: task.id),
+                    isEditing: editingBinding(for: task.id),
+                    onToggleCompletion: { isCompleted in
+                        viewModel.setCompletion(isCompleted, for: task.id, in: listID, account: accountID)
+                    },
+                    onEditTitle: { newTitle in
+                        viewModel.editTaskTitle(newTitle, for: task.id, in: listID, account: accountID)
+                    },
+                    onDelete: {
+                        viewModel.deleteTask(taskID: task.id, in: listID, account: accountID)
+                    }
+                )
+                .tag(task.id)
+                .listRowSeparator(.visible)
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .refreshable { await viewModel.refresh() }
+        // Space → toggle completion of the selected row.
+        .onKeyPress(.space) {
+            guard let id = selectedTaskID,
+                  let task = tasks.first(where: { $0.id == id }) else { return .ignored }
+            viewModel.setCompletion(
+                task.status != .completed,
+                for: id,
+                in: listID,
+                account: accountID
+            )
+            return .handled
+        }
+        // ⌫ → delete the selected row. No confirm — tasks are cheap to
+        // re-create, and the operation rolls back on a server-side
+        // failure anyway.
+        .onKeyPress(.delete) {
+            guard let id = selectedTaskID else { return .ignored }
+            viewModel.deleteTask(taskID: id, in: listID, account: accountID)
+            selectedTaskID = nil
+            return .handled
+        }
+        // Return → enter inline edit on the selected row.
+        .onKeyPress(.return) {
+            guard let id = selectedTaskID else { return .ignored }
+            editingTaskID = id
+            return .handled
         }
     }
 
@@ -168,7 +260,11 @@ struct TasksView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         ForEach(sections) { section in
-                            AccountSectionView(section: section)
+                            AccountSectionView(
+                                section: section,
+                                viewModel: viewModel,
+                                editingBinding: editingBinding
+                            )
                         }
                     }
                     .padding(.vertical, 4)
@@ -191,12 +287,19 @@ struct TasksView: View {
 
 private struct AccountSectionView: View {
     let section: TasksViewModel.AccountSection
+    @Bindable var viewModel: TasksViewModel
+    let editingBinding: (String) -> Binding<Bool>
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             header
             ForEach(section.slices) { slice in
-                ListSliceView(slice: slice)
+                ListSliceView(
+                    slice: slice,
+                    accountID: section.account.id,
+                    viewModel: viewModel,
+                    editingBinding: editingBinding
+                )
             }
         }
     }
@@ -221,6 +324,9 @@ private struct AccountSectionView: View {
 
 private struct ListSliceView: View {
     let slice: TasksViewModel.ListSlice
+    let accountID: AccountID
+    @Bindable var viewModel: TasksViewModel
+    let editingBinding: (String) -> Binding<Bool>
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -246,10 +352,42 @@ private struct ListSliceView: View {
                         .foregroundStyle(.tertiary)
                         .padding(.leading, 4)
                 } else {
+                    // Aggregated mode renders rows inside a VStack
+                    // (one ScrollView for the whole panel), so swipes
+                    // and List-driven keyboard shortcuts are not
+                    // available here — checkbox tap, context menu and
+                    // double-click to edit cover the same mutations.
                     VStack(spacing: 0) {
                         ForEach(tasks) { task in
-                            TaskRowView(task: task)
-                                .padding(.vertical, 1)
+                            TaskRowView(
+                                task: task,
+                                isPending: viewModel.isPending(taskID: task.id),
+                                isEditing: editingBinding(task.id),
+                                onToggleCompletion: { isCompleted in
+                                    viewModel.setCompletion(
+                                        isCompleted,
+                                        for: task.id,
+                                        in: slice.list.id,
+                                        account: accountID
+                                    )
+                                },
+                                onEditTitle: { newTitle in
+                                    viewModel.editTaskTitle(
+                                        newTitle,
+                                        for: task.id,
+                                        in: slice.list.id,
+                                        account: accountID
+                                    )
+                                },
+                                onDelete: {
+                                    viewModel.deleteTask(
+                                        taskID: task.id,
+                                        in: slice.list.id,
+                                        account: accountID
+                                    )
+                                }
+                            )
+                            .padding(.vertical, 1)
                         }
                     }
                 }
