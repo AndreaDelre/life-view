@@ -55,10 +55,16 @@ extension TasksViewModel {
             return
         }
 
-        // Keep the previous payload visible during a manual refresh so
-        // the panel doesn't flash to a spinner.
-        if fromUser, case var .singleLoaded(existing) = state {
-            isRefreshing = true
+        // Keep the previous payload visible during *any* refresh that
+        // has data to fall back on so the panel never flashes to a
+        // spinner. Auto-refresh (every 60 s) used to teardown the whole
+        // task list and rebuild it on each tick — wiping selection,
+        // scroll position, hover and per-list `isCollapsed` — because
+        // the enum case briefly transitioned from `.singleLoaded` to
+        // `.loading` and back. Manual refresh additionally lights up
+        // the toolbar spinner; background refresh stays silent.
+        if case var .singleLoaded(existing) = state {
+            if fromUser { isRefreshing = true }
             existing.account = account
             state = .singleLoaded(existing)
         } else {
@@ -91,11 +97,26 @@ extension TasksViewModel {
                 return lists[0].id
             }()
 
+            // Preserve the visible tasks for the selected list across
+            // the lists-refresh hop. Falling back to `.loading` here
+            // would flash the panel content area on every background
+            // refresh — the new tasks land via `loadTasks` below; until
+            // then, showing the previous payload is preferable to a
+            // spinner.
+            let preservedTasksState: TasksState
+            if case let .singleLoaded(prev) = state,
+               prev.selectedListID == selection,
+               case .loaded = prev.tasksState {
+                preservedTasksState = prev.tasksState
+            } else {
+                preservedTasksState = .loading
+            }
+
             state = .singleLoaded(SinglePayload(
                 account: account,
                 lists: lists,
                 selectedListID: selection,
-                tasksState: .loading
+                tasksState: preservedTasksState
             ))
 
             // Warm the cache for every list so subsequent list-switches
@@ -124,7 +145,19 @@ extension TasksViewModel {
             return
         }
 
-        if case var .singleLoaded(payload) = state, payload.selectedListID == listID {
+        // Keep already-loaded tasks visible while the fetch runs.
+        // Switching to `.loading` mid-fetch flashes the row tree to a
+        // spinner on every background refresh and resets row-level
+        // `@State` (hover, inline edit, sub-task expansion). Callers
+        // that genuinely invalidate the visible tasks (e.g. switching
+        // to a different list) are responsible for setting `.loading`
+        // themselves *before* invoking `loadTasks`.
+        if case var .singleLoaded(payload) = state,
+           payload.selectedListID == listID,
+           case .loaded = payload.tasksState {
+            // No-op: previous tasks stay on screen until the fetch
+            // either succeeds (swap below) or fails (error branch).
+        } else if case var .singleLoaded(payload) = state, payload.selectedListID == listID {
             payload.tasksState = .loading
             state = .singleLoaded(payload)
         }
@@ -203,8 +236,13 @@ extension TasksViewModel {
             return
         }
 
-        if fromUser, case .allLoaded = state {
-            isRefreshing = true
+        // Same rationale as `reloadSingle`: keep `.allLoaded` visible
+        // through any background refresh — the fan-out below runs in
+        // parallel and the result lands atomically in `state` at the
+        // end. Auto-refresh stays silent; manual refresh lights up the
+        // toolbar `isRefreshing` indicator.
+        if case .allLoaded = state {
+            if fromUser { isRefreshing = true }
         } else {
             state = .loading
         }
