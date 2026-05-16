@@ -19,10 +19,16 @@ struct AccountSectionView: View {
     let section: TasksViewModel.AccountSection
     @Bindable var viewModel: TasksViewModel
     let editingBinding: (String) -> Binding<Bool>
+    /// Skipped when the parent renders a single account (the bar already
+    /// shows which profile is selected — repeating the avatar + name +
+    /// email would only add clutter).
+    var showsHeader: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
-            header
+            if showsHeader {
+                header
+            }
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 ForEach(section.slices) { slice in
                     ListSliceView(

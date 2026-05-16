@@ -393,7 +393,7 @@ struct TasksView: View {
         } else {
             VStack(alignment: .leading, spacing: Spacing.md) {
                 HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-                    Text("Tous les comptes")
+                    Text(sections.count == 1 ? "Toutes les listes" : "Tous les comptes")
                         .font(Typography.titleHero)
                         .foregroundStyle(Palette.textPrimary)
                         .accessibilityAddTraits(.isHeader)
@@ -411,7 +411,8 @@ struct TasksView: View {
                             AccountSectionView(
                                 section: section,
                                 viewModel: viewModel,
-                                editingBinding: editingBinding
+                                editingBinding: editingBinding,
+                                showsHeader: sections.count > 1
                             )
                         }
                     }

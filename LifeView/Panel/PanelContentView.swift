@@ -172,7 +172,15 @@ struct PanelContentView: View {
         switch accountsViewModel.mode {
         case .single:
             guard let id = accountsViewModel.selectedID else { return .none }
-            return .single(id)
+            switch accountsViewModel.singleLayout {
+            case .oneList:
+                return .single(id)
+            case .allLists:
+                // Reuse the aggregated renderer against a one-element
+                // account list — same collapsible list sections as the
+                // multi-account view, scoped to the selected profile.
+                return .all([id])
+            }
         case .all:
             return .all(accountsViewModel.accounts.map(\.id))
         }
