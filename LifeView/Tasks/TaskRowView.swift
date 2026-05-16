@@ -39,26 +39,31 @@ struct TaskRowView: View {
     private var indent: CGFloat { CGFloat(depth) * Self.depthIndent }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+        // Center alignment (rather than firstTextBaseline) so the
+        // bigger checkbox glyph dictates the row's vertical midline
+        // and the trailing due-date / pending pieces line up cleanly
+        // alongside the title text.
+        HStack(alignment: .center, spacing: Spacing.sm) {
             checkbox
 
-            VStack(alignment: .leading, spacing: Spacing.xxs) {
-                titleRow
-                    // Strike-through + color shift on completion are
-                    // animated together so the row "settles" into its
-                    // completed state instead of snapping. Reduce-motion
-                    // drops the timing to a plain cross-fade through
-                    // `Motion.reduced` (same easing, no spring/bounce).
-                    .animation(reduceMotion ? Motion.reduced : Motion.emphasised, value: task.status)
+            titleRow
+                // Strike-through + color shift on completion are
+                // animated together so the row "settles" into its
+                // completed state instead of snapping. Reduce-motion
+                // drops the timing to a plain cross-fade through
+                // `Motion.reduced` (same easing, no spring/bounce).
+                .animation(reduceMotion ? Motion.reduced : Motion.emphasised, value: task.status)
 
-                if let due = task.due {
-                    Text(formatDue(due))
-                        .font(Typography.caption)
-                        .foregroundStyle(Palette.textSecondary)
-                }
+            Spacer(minLength: Spacing.sm)
+
+            if let due = task.due {
+                Text(formatDue(due))
+                    .font(Typography.caption)
+                    .foregroundStyle(Palette.textSecondary)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .accessibilityHidden(true)
             }
-
-            Spacer(minLength: 0)
 
             if isPending {
                 ProgressView()
@@ -148,7 +153,12 @@ struct TaskRowView: View {
                 .foregroundStyle(task.status == .completed ? Palette.accent : Palette.textSecondary)
                 // Sub-task checkboxes shrink one step to reinforce the
                 // hierarchy at a glance — same trick Todoist uses.
-                .font(depth > 0 ? Typography.caption : Typography.body)
+                // Top-level checkboxes use `.title3` (~20pt) so the
+                // glyph reads as a chunky, deliberately-targetable
+                // affordance — the previous body-size circle felt
+                // hairline and crowded the title text.
+                .font(depth > 0 ? Typography.body : .title3)
+                .symbolRenderingMode(.hierarchical)
                 .contentTransition(.symbolEffect(.replace))
                 .animation(reduceMotion ? Motion.reduced : Motion.quick, value: task.status)
         }
