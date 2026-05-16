@@ -1,0 +1,14 @@
+// Copy this file to `Local.xcconfig` (same folder) and fill in your
+// personal team id. `Local.xcconfig` is git-ignored.
+//
+// How to find your team id:
+//   Xcode → Settings → Accounts → select your Apple ID →
+//   "Manage Certificates…" — the 10-char id appears next to your
+//   team name in the title bar of that sheet.
+//
+// A free personal Apple ID gives you a "Personal Team" with a valid
+// id that's enough for local dev (notifications, sandbox grants…).
+// A paid Developer Program account is only required for Developer
+// ID distribution / push notifications / App Store submission.
+
+DEVELOPMENT_TEAM = ABCDE12345

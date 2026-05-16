@@ -64,6 +64,17 @@ struct TasksView: View {
         .animation(.easeInOut(duration: 0.18), value: viewModel.lastError)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(shortcutHosts)
+        // Notification-driven focus: when ``focusRequestTaskID`` is
+        // non-nil, mirror it into the local selection state and clear
+        // it. The actual scroll-to happens inside the per-mode list
+        // via `.scrollPosition` (single mode uses `List`'s built-in
+        // selection-tracking, so just setting `selectedTaskID` is
+        // enough to highlight + scroll).
+        .onChange(of: viewModel.focusRequestTaskID) { _, requested in
+            guard let requested else { return }
+            selectedTaskID = requested
+            viewModel.focusRequestTaskID = nil
+        }
     }
 
     /// All the "invisible" buttons that exist solely to host a

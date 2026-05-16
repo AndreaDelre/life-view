@@ -46,6 +46,7 @@ LifeView/Info.plist
 
 # Secrets / local config
 *.local.xcconfig
+Config/Local.xcconfig
 GoogleService-Info.plist
 ClientSecret.plist
 .env

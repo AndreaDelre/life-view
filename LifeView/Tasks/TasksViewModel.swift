@@ -85,6 +85,12 @@ final class TasksViewModel {
     /// ``dismissError()`` once the view has shown it.
     var lastError: String?
 
+    /// Task id the panel should select / scroll to on the next
+    /// rendering pass. Set non-nil by ``focusTask(accountID:listID:taskID:)``
+    /// (called when a notification is tapped); cleared by the view
+    /// after it has applied the focus.
+    var focusRequestTaskID: String?
+
     // MARK: - Dependencies
 
     let sessions: AccountSessionRegistry

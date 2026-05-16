@@ -15,11 +15,21 @@ SWIFT_STRICT_CONCURRENCY = complete
 PRODUCT_BUNDLE_IDENTIFIER = fr.andreadelre.LifeView
 PRODUCT_NAME = LifeView
 
-// Signing — manual / no team for local dev. CI overrides as needed.
+// Signing — Automatic by default. A free personal Apple ID is
+// enough to get OS-level grants working locally (notifications,
+// sandbox, etc.). CI passes CODE_SIGN_IDENTITY="" /
+// CODE_SIGNING_ALLOWED=NO on the xcodebuild command line so the
+// headless runner doesn't need a developer identity.
+//
+// Local team id: copy `Config/Local.xcconfig.example` to
+// `Config/Local.xcconfig` and fill in your 10-char personal team
+// (Xcode → Settings → Accounts → "Manage Certificates…" shows it).
+// `Local.xcconfig` is git-ignored.
 CODE_SIGN_STYLE = Automatic
-CODE_SIGN_IDENTITY = -
-CODE_SIGNING_REQUIRED = NO
-CODE_SIGNING_ALLOWED = NO
+
+// Optional per-machine override. The `?` makes the include silent
+// when the file is absent — CI / first-time clones build fine.
+#include? "Local.xcconfig"
 
 // Misc
 ENABLE_HARDENED_RUNTIME = YES
