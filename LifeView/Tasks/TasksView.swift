@@ -43,8 +43,8 @@ struct TasksView: View {
                 ErrorToast(message: message) {
                     viewModel.dismissError()
                 }
-                .padding(.horizontal, 4)
-                .padding(.top, 4)
+                .padding(.horizontal, Spacing.xs)
+                .padding(.top, Spacing.xs)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
@@ -98,7 +98,7 @@ struct TasksView: View {
                 message: "Ce compte Google n'a pas encore de liste de tâches."
             )
         } else {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
                 singleToolbar(payload)
                 Divider()
                 NewTaskRow(
@@ -114,7 +114,7 @@ struct TasksView: View {
     }
 
     private func singleToolbar(_ payload: TasksViewModel.SinglePayload) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm) {
             listMenu(payload)
 
             Spacer(minLength: 0)
@@ -171,11 +171,11 @@ struct TasksView: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 Text(selectedTitle).lineLimit(1)
                 Image(systemName: "chevron.down")
                     .imageScale(.small)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.textSecondary)
             }
         }
         .menuStyle(.borderlessButton)
@@ -325,11 +325,11 @@ struct TasksView: View {
                 message: "Ajoute un compte Google pour voir tes tâches ici."
             )
         } else {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                HStack(spacing: Spacing.sm) {
                     Text("Tous les comptes")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .font(Typography.titleMedium)
+                        .foregroundStyle(Palette.textSecondary)
                     Spacer(minLength: 0)
                     CompletedToggle(showsCompleted: viewModel.showsCompleted) {
                         viewModel.toggleShowsCompleted()
@@ -340,7 +340,7 @@ struct TasksView: View {
                 }
                 Divider()
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
+                    LazyVStack(alignment: .leading, spacing: Spacing.lg) {
                         ForEach(sections) { section in
                             AccountSectionView(
                                 section: section,
@@ -349,7 +349,7 @@ struct TasksView: View {
                             )
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, Spacing.xs)
                 }
                 .scrollContentBackground(.hidden)
                 .refreshable { await viewModel.refresh() }
@@ -395,7 +395,7 @@ private struct RefreshButton: View {
                     ProgressView().controlSize(.small)
                 }
             }
-            .frame(width: 16, height: 16)
+            .frame(width: IconSize.sm, height: IconSize.sm)
         }
         .buttonStyle(.borderless)
         .disabled(isRefreshing)
@@ -412,18 +412,18 @@ private struct EmptyState: View {
     let message: String
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Spacing.sm) {
             Image(systemName: icon)
                 .font(.title)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Palette.textSecondary)
             Text(title)
                 .font(.headline)
             Text(message)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(Typography.callout)
+                .foregroundStyle(Palette.textSecondary)
                 .multilineTextAlignment(.center)
         }
-        .padding()
+        .padding(Spacing.md)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
@@ -433,17 +433,17 @@ private struct ErrorState: View {
     let retry: () -> Void
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: Spacing.md) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.title)
-                .foregroundStyle(.orange)
+                .foregroundStyle(Palette.warning)
             Text(message)
-                .font(.callout)
+                .font(Typography.callout)
                 .multilineTextAlignment(.center)
             Button("Réessayer", action: retry)
                 .controlSize(.small)
         }
-        .padding()
+        .padding(Spacing.md)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

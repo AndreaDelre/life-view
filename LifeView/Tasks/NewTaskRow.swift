@@ -16,10 +16,10 @@ struct NewTaskRow: View {
     let onSubmit: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
+        HStack(alignment: .center, spacing: Spacing.sm) {
             Button(action: onSubmit) {
                 Image(systemName: "plus.circle.fill")
-                    .foregroundStyle(canSubmit ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(canSubmit ? Palette.accent : Palette.textSecondary)
                     .imageScale(.medium)
             }
             .buttonStyle(.plain)
@@ -34,8 +34,8 @@ struct NewTaskRow: View {
 
             QuickDatePicker(date: $due)
         }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 4)
+        .padding(.vertical, Spacing.sm)
+        .padding(.horizontal, Spacing.xs)
     }
 
     private var canSubmit: Bool {

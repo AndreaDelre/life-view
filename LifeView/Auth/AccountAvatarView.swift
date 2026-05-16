@@ -1,3 +1,4 @@
+import DesignSystem
 import SwiftUI
 
 /// Loads the Google avatar URL with a graceful fallback to a system glyph.
@@ -32,6 +33,6 @@ struct AccountAvatarView: View {
             .resizable()
             .scaledToFit()
             .foregroundStyle(.tint)
-            .padding(2)
+            .padding(Spacing.xxs)
     }
 }

@@ -14,29 +14,29 @@ public struct ErrorToast: View {
     }
 
     public var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(Palette.warning)
                 .imageScale(.small)
             Text(message)
-                .font(.caption)
+                .font(Typography.caption)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             Button(action: onDismiss) {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.textSecondary)
                     .imageScale(.small)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Fermer")
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(.orange.opacity(0.4), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                .strokeBorder(Palette.warning.opacity(0.4), lineWidth: 0.5)
         )
         .accessibilityElement(children: .combine)
     }

@@ -1,4 +1,5 @@
 import Core
+import DesignSystem
 import GoogleAuth
 import SwiftUI
 
@@ -20,7 +21,7 @@ struct AccountSectionView: View {
     let editingBinding: (String) -> Binding<Bool>
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             header
             ForEach(section.slices) { slice in
                 ListSliceView(
@@ -34,20 +35,20 @@ struct AccountSectionView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
             AccountAvatarView(url: section.account.profile.avatarURL)
-                .frame(width: 22, height: 22)
+                .frame(width: IconSize.md, height: IconSize.md)
             VStack(alignment: .leading, spacing: 0) {
                 if let name = section.account.profile.displayName, !name.isEmpty {
-                    Text(name).font(.callout.weight(.semibold))
+                    Text(name).font(Typography.titleSmall)
                 }
                 Text(section.account.profile.email)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Typography.caption)
+                    .foregroundStyle(Palette.textSecondary)
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Spacing.xxs)
     }
 }
 
@@ -58,28 +59,28 @@ struct ListSliceView: View {
     let editingBinding: (String) -> Binding<Bool>
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
             Text(slice.list.title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
-                .padding(.leading, 4)
+                .font(Typography.subheadline)
+                .foregroundStyle(Palette.textPrimary)
+                .padding(.leading, Spacing.xs)
             switch slice.tasksState {
             case .loading:
                 HStack { ProgressView().controlSize(.small)
                     Spacer()
                 }
-                .padding(.leading, 4)
+                .padding(.leading, Spacing.xs)
             case let .error(message):
                 Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 4)
+                    .font(Typography.caption)
+                    .foregroundStyle(Palette.textSecondary)
+                    .padding(.leading, Spacing.xs)
             case let .loaded(tasks):
                 if tasks.isEmpty {
                     Text("—")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .padding(.leading, 4)
+                        .font(Typography.caption)
+                        .foregroundStyle(Palette.textTertiary)
+                        .padding(.leading, Spacing.xs)
                 } else {
                     VStack(spacing: 0) {
                         ForEach(tasks) { task in
@@ -111,6 +112,8 @@ struct ListSliceView: View {
                                     )
                                 }
                             )
+                            // 1pt hairline separation — too small for a
+                            // named spacing token, intentionally sub-grid.
                             .padding(.vertical, 1)
                         }
                     }
