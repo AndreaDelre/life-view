@@ -108,16 +108,20 @@ struct ListSliceView: View {
     /// the RTL-aware "out of the way" reading direction. Reduce-motion
     /// collapses both into a plain opacity cross-fade.
     private func tasksStack(_ tasks: [TaskItem]) -> some View {
-        VStack(spacing: 0) {
-            ForEach(tasks) { task in
+        let entries = TaskHierarchy.entries(for: tasks)
+        return VStack(spacing: 0) {
+            ForEach(entries) { entry in
                 TaskRowView(
-                    task: task,
-                    isPending: viewModel.isPending(taskID: task.id),
-                    isEditing: editingBinding(task.id),
+                    task: entry.task,
+                    isPending: viewModel.isPending(taskID: entry.task.id),
+                    depth: entry.depth,
+                    totalSubtasks: entry.totalSubtasks,
+                    completedSubtasks: entry.completedSubtasks,
+                    isEditing: editingBinding(entry.task.id),
                     onToggleCompletion: { isCompleted in
                         viewModel.setCompletion(
                             isCompleted,
-                            for: task.id,
+                            for: entry.task.id,
                             in: slice.list.id,
                             account: accountID
                         )
@@ -125,14 +129,14 @@ struct ListSliceView: View {
                     onEditTitle: { newTitle in
                         viewModel.editTaskTitle(
                             newTitle,
-                            for: task.id,
+                            for: entry.task.id,
                             in: slice.list.id,
                             account: accountID
                         )
                     },
                     onDelete: {
                         viewModel.deleteTask(
-                            taskID: task.id,
+                            taskID: entry.task.id,
                             in: slice.list.id,
                             account: accountID
                         )
