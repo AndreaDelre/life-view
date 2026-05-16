@@ -19,18 +19,18 @@ struct TaskRowView: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
             checkbox
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
                 titleView
-                    .strikethrough(task.status == .completed, color: .secondary)
-                    .foregroundStyle(task.status == .completed ? Color.secondary : Color.primary)
+                    .strikethrough(task.status == .completed, color: Palette.textSecondary)
+                    .foregroundStyle(task.status == .completed ? Palette.textSecondary : Palette.textPrimary)
 
                 if let due = task.due {
                     Text(formatDue(due))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(Typography.caption)
+                        .foregroundStyle(Palette.textSecondary)
                 }
             }
 
@@ -41,7 +41,7 @@ struct TaskRowView: View {
                     .controlSize(.small)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Spacing.xs)
         .opacity(isPending ? 0.55 : 1.0)
         .contentShape(Rectangle())
         .contextMenu {
@@ -66,7 +66,7 @@ struct TaskRowView: View {
                     systemImage: task.status == .completed ? "arrow.uturn.backward" : "checkmark"
                 )
             }
-            .tint(.green)
+            .tint(Palette.success)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive, action: onDelete) {
@@ -81,8 +81,8 @@ struct TaskRowView: View {
             onToggleCompletion(task.status != .completed)
         } label: {
             Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(task.status == .completed ? Color.accentColor : Color.secondary)
-                .font(.body)
+                .foregroundStyle(task.status == .completed ? Palette.accent : Palette.textSecondary)
+                .font(Typography.body)
         }
         .buttonStyle(.plain)
         .disabled(isPending)
@@ -96,7 +96,7 @@ struct TaskRowView: View {
             placeholder: "Titre",
             onCommit: onEditTitle
         )
-        .font(.body)
+        .font(Typography.body)
         .onTapGesture(count: 2) {
             guard !isPending else { return }
             isEditing = true

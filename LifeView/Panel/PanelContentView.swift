@@ -1,3 +1,4 @@
+import DesignSystem
 import GoogleAuth
 import SwiftUI
 
@@ -14,7 +15,7 @@ struct PanelContentView: View {
     let environment: PanelEnvironment
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Spacing.md) {
             header
             AccountsBarView(viewModel: accountsViewModel, onAddAccount: performAddAccount)
             if let error = accountsViewModel.errorMessage {
@@ -24,7 +25,7 @@ struct PanelContentView: View {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(20)
+        .padding(Spacing.lg)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             VisualEffectBackground()
@@ -41,12 +42,12 @@ struct PanelContentView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.sm) {
             Image(systemName: "checklist")
                 .font(.title2)
                 .foregroundStyle(.tint)
             Text("LifeView")
-                .font(.title2.weight(.semibold))
+                .font(Typography.titleLarge)
             Spacer()
         }
     }
@@ -66,23 +67,23 @@ struct PanelContentView: View {
 
     @ViewBuilder
     private func inlineError(_ message: String) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(Palette.warning)
             Text(message)
-                .font(.caption)
-                .foregroundStyle(.primary)
+                .font(Typography.caption)
+                .foregroundStyle(Palette.textPrimary)
             Spacer(minLength: 0)
             Button(action: accountsViewModel.clearError) {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.textSecondary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Effacer l’erreur")
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 8)
-        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.vertical, Spacing.xs)
+        .padding(.horizontal, Spacing.sm)
+        .background(Palette.surfaceWarning, in: RoundedRectangle(cornerRadius: Radius.md))
     }
 
     // MARK: - Derived state

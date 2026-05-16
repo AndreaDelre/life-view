@@ -1,3 +1,4 @@
+import DesignSystem
 import SwiftUI
 
 /// "Pas de compte" screen — shown when no Google account is persisted.
@@ -6,22 +7,24 @@ struct SignedOutView: View {
     let onSignIn: () -> Void
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Spacing.lg) {
             Image(systemName: "person.crop.circle.badge.plus")
+                // 44pt hero glyph — bespoke size for the sign-in screen,
+                // sits above the typography scale on purpose.
                 .font(.system(size: 44, weight: .light))
                 .foregroundStyle(.tint)
 
-            VStack(spacing: 4) {
+            VStack(spacing: Spacing.xs) {
                 Text("Connecte ton compte Google")
                     .font(.headline)
                 Text("LifeView a besoin d’accéder à Google Tasks pour afficher tes listes.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(Typography.callout)
+                    .foregroundStyle(Palette.textSecondary)
                     .multilineTextAlignment(.center)
             }
 
             Button(action: onSignIn) {
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                     if isWorking {
                         ProgressView().controlSize(.small)
                     } else {
@@ -35,7 +38,7 @@ struct SignedOutView: View {
             .buttonStyle(.borderedProminent)
             .disabled(isWorking)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Spacing.sm)
         .frame(maxWidth: .infinity)
     }
 }

@@ -1,3 +1,4 @@
+import DesignSystem
 import GoogleAuth
 import SwiftUI
 
@@ -17,7 +18,7 @@ struct AccountsBarView: View {
     @State private var renameDraft: String = ""
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
             allAccountsToggle
             avatarStrip
             Spacer(minLength: 0)
@@ -49,7 +50,7 @@ struct AccountsBarView: View {
     // MARK: - Subviews
 
     private var avatarStrip: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             ForEach(viewModel.accounts) { account in
                 AccountAvatarButton(
                     account: account,
@@ -72,7 +73,7 @@ struct AccountsBarView: View {
             } label: {
                 Image(systemName: viewModel.mode == .all ? "person.2.fill" : "person.2")
                     .symbolRenderingMode(.hierarchical)
-                    .frame(width: 22, height: 22)
+                    .frame(width: IconSize.md, height: IconSize.md)
             }
             .buttonStyle(.borderless)
             .help(viewModel.mode == .all ? "Vue agrégée — désactiver" : "Voir tous les comptes")
@@ -127,11 +128,11 @@ private struct AccountAvatarButton: View {
     var body: some View {
         Button(action: onSelect) {
             AccountAvatarView(url: account.profile.avatarURL)
-                .frame(width: 26, height: 26)
+                .frame(width: IconSize.lg, height: IconSize.lg)
                 .opacity(isDimmed ? 0.55 : 1)
                 .overlay(
                     Circle()
-                        .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 2)
+                        .strokeBorder(isSelected ? Palette.accent : .clear, lineWidth: 2)
                 )
         }
         .buttonStyle(.plain)
