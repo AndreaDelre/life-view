@@ -293,6 +293,53 @@ public actor OfflineCacheStore {
         }
     }
 
+    /// Reads the queued payload for `id`, hands it to `transform`, then
+    /// writes the result back. Used by the view-model's "collapse"
+    /// logic: when the user toggles or renames a task whose creation is
+    /// still queued, we mute the queued `.createTask` draft in place
+    /// instead of stacking an `.updateTask` behind it. Returns the
+    /// mutated payload, or `nil` if no entry with `id` exists (e.g. the
+    /// drainer raced ahead and removed it).
+    @discardableResult
+    public func mutatePendingWrite(
+        id: String,
+        transform: @Sendable (PendingWritePayload) throws -> PendingWritePayload
+    ) throws -> PendingWritePayload? {
+        let encoder = encoder
+        let decoder = decoder
+        return try dbWriter.write { db in
+            guard let record = try PendingWriteRecord
+                .filter(Column("id") == id)
+                .fetchOne(db) else { return nil }
+            let current = try decoder.decode(PendingWritePayload.self, from: record.payload)
+            let next = try transform(current)
+            var updated = record
+            updated.payload = try encoder.encode(next)
+            updated.kind = PendingWriteRecord.kind(of: next)
+            try updated.update(db)
+            return next
+        }
+    }
+
+    /// Locates the queued `.createTask` entry for `(accountID,
+    /// clientTaskID)`, if one is still pending. Returns `nil` when the
+    /// drainer has already flushed it (server-ID assigned) or when no
+    /// such create was ever enqueued. The view-model calls this before
+    /// applying a collapse so it knows whether to mute the queued draft
+    /// or fall through to a regular `.updateTask` enqueue.
+    public func findCreateTask(
+        accountID: AccountID,
+        clientTaskID: String
+    ) throws -> PendingWrite? {
+        let writes = try pendingWrites(accountID: accountID)
+        return writes.first { write in
+            if case let .createTask(_, queuedID, _) = write.payload {
+                return queuedID == clientTaskID
+            }
+            return false
+        }
+    }
+
     // MARK: - Test helpers
 
     /// Drops every row in every table. Tests-only convenience.

@@ -121,6 +121,60 @@ final class OfflineCacheStoreTests: XCTestCase {
         XCTAssertTrue(snapshot.tasksByList.isEmpty)
     }
 
+    // MARK: - mutatePendingWrite / findCreateTask
+
+    func test_mutatePendingWrite_replacesPayloadInPlace() async throws {
+        let store = try await makeStore()
+        let write = try await store.enqueueWrite(
+            accountID: accountA,
+            payload: .createTask(
+                listID: "l1",
+                clientTaskID: "local-1",
+                draft: PendingTaskDraft(title: "Original")
+            )
+        )
+        _ = try await store.mutatePendingWrite(id: write.id) { payload in
+            guard case var .createTask(listID, clientID, draft) = payload else { return payload }
+            draft.title = "Muté"
+            draft.status = .completed
+            return .createTask(listID: listID, clientTaskID: clientID, draft: draft)
+        }
+        let writes = try await store.pendingWrites(accountID: accountA)
+        XCTAssertEqual(writes.count, 1, "mutate must replace, not duplicate")
+        if case let .createTask(_, _, draft) = writes.first?.payload {
+            XCTAssertEqual(draft.title, "Muté")
+            XCTAssertEqual(draft.status, .completed)
+        } else {
+            XCTFail("expected .createTask payload after mutation")
+        }
+    }
+
+    func test_mutatePendingWrite_returnsNilForUnknownID() async throws {
+        let store = try await makeStore()
+        let result = try await store.mutatePendingWrite(id: "no-such-id") { $0 }
+        XCTAssertNil(result)
+    }
+
+    func test_findCreateTask_matchesByClientTaskID() async throws {
+        let store = try await makeStore()
+        _ = try await store.enqueueWrite(
+            accountID: accountA,
+            payload: .deleteTask(listID: "l1", taskID: "t1")
+        )
+        let create = try await store.enqueueWrite(
+            accountID: accountA,
+            payload: .createTask(
+                listID: "l1",
+                clientTaskID: "local-42",
+                draft: PendingTaskDraft(title: "x")
+            )
+        )
+        let found = try await store.findCreateTask(accountID: accountA, clientTaskID: "local-42")
+        XCTAssertEqual(found?.id, create.id)
+        let miss = try await store.findCreateTask(accountID: accountA, clientTaskID: "local-99")
+        XCTAssertNil(miss)
+    }
+
     // MARK: - Wipe
 
     func test_wipeAccount_clearsListsTasksAndQueue() async throws {

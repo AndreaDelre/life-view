@@ -66,21 +66,36 @@ public enum PendingWritePayload: Sendable, Codable, Equatable {
 /// directly because adding `Codable` to it would commit `Core` to a
 /// persistence shape; the indirection lets `TaskDraft` evolve freely
 /// while the on-disk format stays stable behind this struct.
+///
+/// The extra `status` field is **not** part of `TaskDraft` (the live
+/// `insertTask` endpoint always creates a task in `needsAction`). It
+/// only lives here so the collapse logic — when the user toggles a
+/// not-yet-flushed local task — can stamp the final status on the
+/// queued create. The drainer's executor honours it by chaining a
+/// status update after the insert when it's set to `.completed`.
 public struct PendingTaskDraft: Sendable, Codable, Equatable {
     public var title: String
     public var notes: String?
     public var due: Date?
+    public var status: TaskStatus?
 
-    public init(title: String, notes: String? = nil, due: Date? = nil) {
+    public init(
+        title: String,
+        notes: String? = nil,
+        due: Date? = nil,
+        status: TaskStatus? = nil
+    ) {
         self.title = title
         self.notes = notes
         self.due = due
+        self.status = status
     }
 
     public init(draft: TaskDraft) {
         title = draft.title
         notes = draft.notes
         due = draft.due
+        status = nil
     }
 
     /// Materialises the wire-side ``TaskDraft`` used by the live client.
